@@ -652,7 +652,7 @@ const SuperstoreDashboard = () => {
         {/* Footer */}
         <div className="mt-12 text-center bg-white rounded-xl shadow-lg p-6">
           <p className="text-slate-600">
-            <strong>Dashboard Insights:</strong> This comprehensive analysis provides a holistic view of Superstore's performance,
+            <strong>Dashboard Insights:</strong> This comprehensive analysis provides a holistic view of Superstore&apos;s performance,
             enabling data-driven decisions across regional strategies, temporal planning, and customer segment optimization.
           </p>
         </div>
