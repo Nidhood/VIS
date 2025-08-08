@@ -218,3 +218,5 @@ export function useSuperstoreData() {
     totals,
   };
 }
+
+export default useSuperstoreData;
