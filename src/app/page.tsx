@@ -410,7 +410,7 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
       .attr("font-weight", 500);
 
     g.append("g")
-      .call(d3.axisLeft(y).tickFormat(fmtK as any)) // d3 types accept a union; cast callback only
+      .call(d3.axisLeft(y).tickFormat(fmtK as any))
       .selectAll("text")
       .attr("fill", "#374151")
       .attr("font-size", 11);
@@ -535,11 +535,7 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
       .attr("dy", ".15em")
       .attr("transform", "rotate(-45)");
 
-    g.append("g")
-      .call(d3.axisLeft(y).tickFormat(fmtK as any))
-      .selectAll("text")
-      .attr("fill", "#374151")
-      .attr("font-size", 11);
+    g.append("g").call(d3.axisLeft(y).tickFormat(fmtK as any)).selectAll("text").attr("fill", "#374151").attr("font-size", 11);
 
     // overlay tooltip
     g.append("rect")
@@ -605,11 +601,16 @@ const CategoryPieChart: React.FC<{ data: Category[] }> = ({ data }) => {
 
     const arc = d3.arc<d3.PieArcDatum<Category>>().innerRadius(radius * 0.5).outerRadius(radius);
 
-    const arcs = g.selectAll<SVGGElement, d3.PieArcDatum<Category>>(".arc").data(pie(data)).enter().append("g").attr("class", "arc");
+    const arcs = g
+      .selectAll<SVGGElement, d3.PieArcDatum<Category>>(".arc")
+      .data(pie(data))
+      .enter()
+      .append("g")
+      .attr("class", "arc");
 
     arcs
       .append("path")
-      .attr("d", (d) => arc(d) ?? undefined)
+      .attr("d", (d) => arc(d) ?? null) // <= aquí el fix
       .attr("fill", (d) => color(d.data.category)!)
       .attr("stroke", "white")
       .attr("stroke-width", 3)
@@ -702,12 +703,7 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
       .attr("dy", ".15em")
       .attr("transform", "rotate(-20)");
 
-    g
-      .append("g")
-      .call(d3.axisLeft(y).tickFormat(fmtK as any))
-      .selectAll("text")
-      .attr("fill", "#374151")
-      .attr("font-size", 11);
+    g.append("g").call(d3.axisLeft(y).tickFormat(fmtK as any)).selectAll("text").attr("fill", "#374151").attr("font-size", 11);
   }, [data]);
 
   return <svg ref={svgRef} width={600} height={300} className="max-w-full h-auto" />;
@@ -741,8 +737,14 @@ const ReturnsImpactChart: React.FC<{ data: ReturnsInfo }> = ({ data }) => {
       { label: "Successful", value: 100 - data.returnRate, color: "#10B981" },
     ];
 
-    const arcs = donutG.selectAll<SVGGElement, d3.PieArcDatum<Slice>>(".arc").data(pie(returnData)).enter().append("g").attr("class", "arc");
-    arcs.append("path").attr("d", (d) => arc(d) ?? undefined).attr("fill", (d) => d.data.color).attr("opacity", 0.8);
+    const arcs = donutG
+      .selectAll<SVGGElement, d3.PieArcDatum<Slice>>(".arc")
+      .data(pie(returnData))
+      .enter()
+      .append("g")
+      .attr("class", "arc");
+
+    arcs.append("path").attr("d", (d) => arc(d) ?? null).attr("fill", (d) => d.data.color).attr("opacity", 0.8);
 
     donutG
       .append("text")
