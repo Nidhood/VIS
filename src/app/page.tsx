@@ -489,13 +489,13 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
       .y1((d) => y(d.sales))
       .curve(d3.curveMonotoneX);
 
-    const areaD = area(processed) ?? undefined;
+    const areaD = area(processed) ?? null;
     g.append("path").attr("fill", "url(#salesGradient)").attr("d", areaD);
 
-    const salesD = salesLine(processed) ?? undefined;
+    const salesD = salesLine(processed) ?? null;
     g.append("path").attr("fill", "none").attr("stroke", "#3B82F6").attr("stroke-width", 3).attr("d", salesD);
 
-    const profitD = profitLine(processed) ?? undefined;
+    const profitD = profitLine(processed) ?? null;
     g.append("path").attr("fill", "none").attr("stroke", "#EF4444").attr("stroke-width", 2).attr("stroke-dasharray", "5,5").attr("d", profitD);
 
     g
