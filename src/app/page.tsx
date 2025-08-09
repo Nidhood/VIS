@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 
-/* -------------------- Tipos -------------------- */
+/* ==================== Tipos ==================== */
 type Region = { region: string; sales: number; profit: number };
 type TemporalPoint = { month: string; sales: number; profit: number };
 type Category = { category: string; sales: number; percentage: number };
@@ -29,19 +29,36 @@ type DashboardData = {
   kpis: KPIs;
 };
 
-/* -------------------- Página -------------------- */
+type OrderRow = {
+  "Order ID": string;
+  "Order Date": Date;
+  "Ship Date": Date;
+  Sales: number;
+  Profit: number;
+  "Order Quantity": number;
+  Discount: number;
+  "Unit Price": number;
+  "Shipping Cost": number;
+  "Product Base Margin": number;
+  Region: string;
+  "Product Category": string;
+  "Customer Segment": string;
+};
+
+const fmtK = (d: d3.NumberValue) => `$${Number(d) / 1000}K`;
+
+/* ==================== Página ==================== */
 const SuperstoreDashboard: React.FC = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Carga CSV con separador ';'
   useEffect(() => {
     const loadData = async () => {
       try {
-        // parser de CSV con ';'
         const parseSemicolonCSV = (csvText: string) => {
           const lines = csvText.trim().split("\n");
           const headers = lines[0].split(";");
-
           return lines.slice(1).map((line) => {
             const values = line.split(";");
             const obj: Record<string, string> = {};
@@ -52,7 +69,6 @@ const SuperstoreDashboard: React.FC = () => {
           });
         };
 
-        // números con coma decimal -> número JS
         const parseNumber = (str?: string) => {
           if (!str) return 0;
           const cleaned = str.replace(",", ".");
@@ -60,87 +76,88 @@ const SuperstoreDashboard: React.FC = () => {
           return Number.isFinite(n) ? n : 0;
         };
 
-        // carga como texto (manteniendo ';')
         const [ordersText, returnsText, usersText] = await Promise.all([
           d3.text("/data/orders.csv"),
           d3.text("/data/returns.csv"),
           d3.text("/data/users.csv"),
         ]);
 
-        const ordersData = parseSemicolonCSV(ordersText ?? "");
-        const returnsData = parseSemicolonCSV(returnsText ?? "");
-        const usersData = parseSemicolonCSV(usersText ?? ""); // (no usado, pero se carga)
+        const ordersRaw = parseSemicolonCSV(ordersText ?? "");
+        const returnsRaw = parseSemicolonCSV(returnsText ?? "");
+        // usersRaw se carga pero no se usa ahora
+        void usersText;
 
-        // Orders normalizado
-        const orders = ordersData
+        const orders: OrderRow[] = ordersRaw
           .map((d) => ({
-            ...d,
+            "Order ID": d["Order ID"] ?? "",
             "Order Date": new Date(d["Order Date"]),
             "Ship Date": new Date(d["Ship Date"]),
             Sales: parseNumber(d["Sales"]),
             Profit: parseNumber(d["Profit"]),
-            "Order Quantity": parseInt(d["Order Quantity"] ?? "0") || 0,
+            "Order Quantity": parseInt(d["Order Quantity"] ?? "0", 10) || 0,
             Discount: parseNumber(d["Discount"]),
             "Unit Price": parseNumber(d["Unit Price"]),
             "Shipping Cost": parseNumber(d["Shipping Cost"]),
             "Product Base Margin": parseNumber(d["Product Base Margin"]),
+            Region: d["Region"] ?? "",
+            "Product Category": d["Product Category"] ?? "",
+            "Customer Segment": d["Customer Segment"] ?? "",
           }))
           .filter((d) => Number.isFinite(d.Sales) && Number.isFinite(d.Profit));
 
         // Regiones
-        const regionData = d3.group(orders, (d) => d.Region as string);
-        const regions: Region[] = Array.from(regionData, ([region, orders]) => ({
+        const regionMap = d3.group(orders, (d) => d.Region);
+        const regions: Region[] = Array.from(regionMap, ([region, arr]) => ({
           region,
-          sales: d3.sum(orders, (d: any) => d.Sales as number),
-          profit: d3.sum(orders, (d: any) => d.Profit as number),
-        })).filter((d) => d.region && d.region !== "");
+          sales: d3.sum(arr, (r) => r.Sales),
+          profit: d3.sum(arr, (r) => r.Profit),
+        })).filter((r) => r.region);
 
-        // Temporal mensual
-        const monthlyData = d3.rollup(
-          orders.filter((d) => d["Order Date"] && !isNaN(+d["Order Date"])),
+        // Temporal (mensual)
+        const monthly = d3.rollup(
+          orders.filter((d) => d["Order Date"] && !Number.isNaN(+d["Order Date"])),
           (v) => ({
-            sales: d3.sum(v, (d: any) => d.Sales as number),
-            profit: d3.sum(v, (d: any) => d.Profit as number),
+            sales: d3.sum(v, (r) => r.Sales),
+            profit: d3.sum(v, (r) => r.Profit),
           }),
-          (d) => d3.timeFormat("%Y-%m")(d["Order Date"] as Date)
+          (d) => d3.timeFormat("%Y-%m")(d["Order Date"])
         );
-
-        const temporal: TemporalPoint[] = Array.from(monthlyData, ([month, values]) => ({
+        const temporal: TemporalPoint[] = Array.from(monthly, ([month, v]) => ({
           month,
-          sales: values.sales,
-          profit: values.profit,
+          sales: v.sales,
+          profit: v.profit,
         })).sort((a, b) => a.month.localeCompare(b.month));
 
         // Categorías
-        const categoryData = d3.group(orders, (d) => d["Product Category"] as string);
-        const totalSales = d3.sum(orders, (d: any) => d.Sales as number);
-        const categories: Category[] = Array.from(categoryData, ([category, orders]) => {
-          const sales = d3.sum(orders, (d: any) => d.Sales as number);
+        const catMap = d3.group(orders, (d) => d["Product Category"]);
+        const totalSales = d3.sum(orders, (r) => r.Sales);
+        const categories: Category[] = Array.from(catMap, ([category, arr]) => {
+          const sales = d3.sum(arr, (r) => r.Sales);
           return {
             category,
             sales,
             percentage: (sales / (totalSales || 1)) * 100,
           };
-        }).filter((d) => d.category && d.category !== "");
+        }).filter((c) => c.category);
 
         // Segmentos
-        const segmentData = d3.group(orders, (d) => d["Customer Segment"] as string);
-        const segments: Segment[] = Array.from(segmentData, ([segment, orders]) => ({
+        const segMap = d3.group(orders, (d) => d["Customer Segment"]);
+        const segments: Segment[] = Array.from(segMap, ([segment, arr]) => ({
           segment,
-          sales: d3.sum(orders, (d: any) => d.Sales as number),
-        })).filter((d) => d.segment && d.segment !== "");
+          sales: d3.sum(arr, (r) => r.Sales),
+        })).filter((s) => s.segment);
 
         // Devoluciones
-        const totalOrders = new Set(orders.map((d: any) => d["Order ID"])).size;
-        const returnedOrders = returnsData.filter((d) => d.Status === "Returned").length;
+        const totalOrders = new Set(orders.map((d) => d["Order ID"])).size;
+        const returnedOrders = returnsRaw.filter((d) => d.Status === "Returned").length;
         const returnRate = totalOrders > 0 ? (returnedOrders / totalOrders) * 100 : 0;
 
-        const returnedOrderIds = new Set(
-          returnsData.filter((d) => d.Status === "Returned").map((d) => d["Order ID"])
+        const returnedIds = new Set(
+          returnsRaw.filter((d) => d.Status === "Returned").map((d) => d["Order ID"])
         );
         const lostRevenue = d3.sum(
-          orders.filter((d: any) => returnedOrderIds.has(d["Order ID"])),
-          (d: any) => d.Sales as number
+          orders.filter((o) => returnedIds.has(o["Order ID"])),
+          (o) => o.Sales
         );
 
         const returns: ReturnsInfo = {
@@ -151,8 +168,8 @@ const SuperstoreDashboard: React.FC = () => {
         };
 
         // KPIs
-        const totalSalesKPI = d3.sum(orders, (d: any) => d.Sales as number);
-        const totalProfitKPI = d3.sum(orders, (d: any) => d.Profit as number);
+        const totalSalesKPI = d3.sum(orders, (r) => r.Sales);
+        const totalProfitKPI = d3.sum(orders, (r) => r.Profit);
         const profitMargin = totalSalesKPI > 0 ? (totalProfitKPI / totalSalesKPI) * 100 : 0;
 
         setData({
@@ -185,7 +202,6 @@ const SuperstoreDashboard: React.FC = () => {
       </div>
     );
   }
-
   if (!data) {
     return (
       <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
@@ -233,7 +249,7 @@ const SuperstoreDashboard: React.FC = () => {
           />
         </div>
 
-        {/* Main Charts Grid */}
+        {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <ChartCard
             title="Regional Performance Analysis"
@@ -279,7 +295,7 @@ const SuperstoreDashboard: React.FC = () => {
   );
 };
 
-/* -------------------- UI helpers -------------------- */
+/* ==================== UI helpers ==================== */
 const KPICard: React.FC<{
   title: string;
   value: string;
@@ -292,9 +308,7 @@ const KPICard: React.FC<{
         <p className="text-sm font-medium text-gray-600">{title}</p>
         <p className="text-2xl font-semibold text-gray-900">{value}</p>
       </div>
-      <div className={`text-sm font-medium ${positive ? "text-green-600" : "text-red-600"}`}>
-        {change}
-      </div>
+      <div className={`text-sm font-medium ${positive ? "text-green-600" : "text-red-600"}`}>{change}</div>
     </div>
   </div>
 );
@@ -313,12 +327,12 @@ const ChartCard: React.FC<{
   </div>
 );
 
-/* -------------------- Charts -------------------- */
+/* ==================== Charts ==================== */
 const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    if (!data?.length) return;
+    if (!data.length) return;
 
     const svg = d3.select(svgRef.current!);
     svg.selectAll("*").remove();
@@ -329,11 +343,7 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const x0 = d3
-      .scaleBand()
-      .domain(data.map((d) => d.region))
-      .rangeRound([0, width])
-      .paddingInner(0.3);
+    const x0 = d3.scaleBand().domain(data.map((d) => d.region)).rangeRound([0, width]).paddingInner(0.3);
 
     const x1 = d3.scaleBand().domain(["sales", "profit"]).rangeRound([0, x0.bandwidth()]).padding(0.1);
 
@@ -376,8 +386,8 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
       .attr("x", x1("sales")! + x1.bandwidth() / 2)
       .attr("y", (d) => y(d.sales) - 5)
       .attr("text-anchor", "middle")
-      .attr("font-size", "11px")
-      .attr("font-weight", "bold")
+      .attr("font-size", 11)
+      .attr("font-weight", 700)
       .attr("fill", "#374151")
       .text((d) => `$${(d.sales / 1000).toFixed(0)}K`);
 
@@ -386,8 +396,8 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
       .attr("x", x1("profit")! + x1.bandwidth() / 2)
       .attr("y", (d) => y(d.profit * profitScale) - 5)
       .attr("text-anchor", "middle")
-      .attr("font-size", "11px")
-      .attr("font-weight", "bold")
+      .attr("font-size", 11)
+      .attr("font-weight", 700)
       .attr("fill", "#374151")
       .text((d) => `$${(d.profit / 1000).toFixed(0)}K`);
 
@@ -400,18 +410,16 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
       .attr("font-weight", 500);
 
     g.append("g")
-      .call(d3.axisLeft(y).tickFormat(((d: d3.NumberValue) => `$${Number(d) / 1000}K`) as any))
+      .call(d3.axisLeft(y).tickFormat(fmtK as any)) // d3 types accept a union; cast callback only
       .selectAll("text")
       .attr("fill", "#374151")
       .attr("font-size", 11);
 
     const legend = g.append("g").attr("transform", `translate(${width - 100}, 20)`);
-
     const legendData = [
       { label: "Sales", color: colors.sales },
       { label: "Profit", color: colors.profit },
     ];
-
     const legendItems = legend
       .selectAll<SVGGElement, { label: string; color: string }>(".legend-item")
       .data(legendData)
@@ -421,14 +429,7 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
       .attr("transform", (_d, i) => `translate(0, ${i * 20})`);
 
     legendItems.append("rect").attr("width", 12).attr("height", 12).attr("fill", (d) => d.color).attr("opacity", 0.8);
-
-    legendItems
-      .append("text")
-      .attr("x", 16)
-      .attr("y", 9)
-      .attr("font-size", 11)
-      .attr("fill", "#374151")
-      .text((d) => d.label);
+    legendItems.append("text").attr("x", 16).attr("y", 9).attr("font-size", 11).attr("fill", "#374151").text((d) => d.label);
   }, [data]);
 
   return <svg ref={svgRef} width={600} height={300} className="max-w-full h-auto" />;
@@ -436,15 +437,11 @@ const RegionalBarChart: React.FC<{ data: Region[] }> = ({ data }) => {
 
 const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const [tooltip, setTooltip] = useState<{ show: boolean; x: number; y: number; data: any | null }>({
-    show: false,
-    x: 0,
-    y: 0,
-    data: null,
-  });
+  type Tooltip = { show: boolean; x: number; y: number; data: (TemporalPoint & { date: Date }) | null };
+  const [tooltip, setTooltip] = useState<Tooltip>({ show: false, x: 0, y: 0, data: null });
 
   useEffect(() => {
-    if (!data?.length) return;
+    if (!data.length) return;
 
     const svg = d3.select(svgRef.current!);
     svg.selectAll("*").remove();
@@ -458,47 +455,55 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
     const parseDate = d3.timeParse("%Y-%m")!;
-    const processedData = data
-      .map((d) => ({ ...d, date: parseDate(d.month) }))
-      .filter((d) => d.date) as (TemporalPoint & { date: Date })[];
-    if (!processedData.length) return;
+    type TD = TemporalPoint & { date: Date };
+    const processed: TD[] = data
+      .map((d) => ({ ...d, date: parseDate(d.month)! }))
+      .filter((d): d is TD => Boolean(d.date));
 
-    const x = d3.scaleTime().domain(d3.extent(processedData, (d) => d.date) as [Date, Date]).range([0, width]);
-    const maxSales = d3.max(processedData, (d) => d.sales) ?? 0;
-    const y = d3.scaleLinear().domain([0, maxSales * 1.1]).range([height, 0]);
+    if (!processed.length) return;
+
+    const x = d3.scaleTime().domain(d3.extent(processed, (d) => d.date) as [Date, Date]).range([0, width]);
+    const y = d3.scaleLinear().domain([0, (d3.max(processed, (d) => d.sales) ?? 0) * 1.1]).range([height, 0]);
 
     const salesLine = d3
-      .line<any>()
+      .line<TD>()
       .x((d) => x(d.date))
       .y((d) => y(d.sales))
       .curve(d3.curveMonotoneX);
 
     const profitLine = d3
-      .line<any>()
+      .line<TD>()
       .x((d) => x(d.date))
       .y((d) => y(d.profit))
       .curve(d3.curveMonotoneX);
 
-    const gradient = svg.append("defs").append("linearGradient").attr("id", "salesGradient").attr("gradientUnits", "userSpaceOnUse").attr("x1", 0).attr("y1", height).attr("x2", 0).attr("y2", 0);
-    gradient.append("stop").attr("offset", "0%").attr("stop-color", "#3B82F6").attr("stop-opacity", 0.1);
-    gradient.append("stop").attr("offset", "100%").attr("stop-color", "#3B82F6").attr("stop-opacity", 0.3);
+    const defs = svg.append("defs");
+    const grad = defs.append("linearGradient").attr("id", "salesGradient").attr("x1", 0).attr("y1", height).attr("x2", 0).attr("y2", 0);
+    grad.append("stop").attr("offset", "0%").attr("stop-color", "#3B82F6").attr("stop-opacity", 0.1);
+    grad.append("stop").attr("offset", "100%").attr("stop-color", "#3B82F6").attr("stop-opacity", 0.3);
 
     const area = d3
-      .area<any>()
+      .area<TD>()
       .x((d) => x(d.date))
       .y0(height)
       .y1((d) => y(d.sales))
       .curve(d3.curveMonotoneX);
 
-    g.append("path").datum(processedData).attr("fill", "url(#salesGradient)").attr("d", area as any);
-    g.append("path").datum(processedData).attr("fill", "none").attr("stroke", "#3B82F6").attr("stroke-width", 3).attr("d", salesLine as any);
-    g.append("path").datum(processedData).attr("fill", "none").attr("stroke", "#EF4444").attr("stroke-width", 2).attr("stroke-dasharray", "5,5").attr("d", profitLine as any);
+    const areaD = area(processed) ?? undefined;
+    g.append("path").attr("fill", "url(#salesGradient)").attr("d", areaD);
 
-    g.selectAll(".sales-dot")
-      .data(processedData)
+    const salesD = salesLine(processed) ?? undefined;
+    g.append("path").attr("fill", "none").attr("stroke", "#3B82F6").attr("stroke-width", 3).attr("d", salesD);
+
+    const profitD = profitLine(processed) ?? undefined;
+    g.append("path").attr("fill", "none").attr("stroke", "#EF4444").attr("stroke-width", 2).attr("stroke-dasharray", "5,5").attr("d", profitD);
+
+    g
+      .selectAll("circle.sales")
+      .data(processed)
       .enter()
       .append("circle")
-      .attr("class", "sales-dot")
+      .attr("class", "sales")
       .attr("cx", (d) => x(d.date))
       .attr("cy", (d) => y(d.sales))
       .attr("r", 4)
@@ -506,11 +511,12 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
       .attr("stroke", "white")
       .attr("stroke-width", 2);
 
-    g.selectAll(".profit-dot")
-      .data(processedData)
+    g
+      .selectAll("circle.profit")
+      .data(processed)
       .enter()
       .append("circle")
-      .attr("class", "profit-dot")
+      .attr("class", "profit")
       .attr("cx", (d) => x(d.date))
       .attr("cy", (d) => y(d.profit))
       .attr("r", 3)
@@ -520,7 +526,7 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
 
     g.append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%b %Y") as any).ticks(Math.min(processedData.length, 12)))
+      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%b %Y") as any).ticks(Math.min(processed.length, 12)))
       .selectAll("text")
       .attr("fill", "#374151")
       .attr("font-size", 10)
@@ -530,7 +536,7 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
       .attr("transform", "rotate(-45)");
 
     g.append("g")
-      .call(d3.axisLeft(y).tickFormat(((d: d3.NumberValue) => `$${Number(d) / 1000}K`) as any))
+      .call(d3.axisLeft(y).tickFormat(fmtK as any))
       .selectAll("text")
       .attr("fill", "#374151")
       .attr("font-size", 11);
@@ -543,14 +549,13 @@ const TemporalLineChart: React.FC<{ data: TemporalPoint[] }> = ({ data }) => {
       .on("mousemove", function (event) {
         const [mx] = d3.pointer(event);
         const x0 = x.invert(mx);
-        const i = d3.bisector((d: any) => d.date).left(processedData, x0, 1);
-        const d0 = processedData[i - 1];
-        const d1 = processedData[i];
-        const d =
-          !d0 ? d1 : !d1 ? d0 : x0.getTime() - d0.date.getTime() > d1.date.getTime() - x0.getTime() ? d1 : d0;
+        const i = d3.bisector((d: TD) => d.date).left(processed, x0, 1);
+        const d0 = processed[i - 1];
+        const d1 = processed[i];
+        const d = !d0 ? d1 : !d1 ? d0 : x0.getTime() - d0.date.getTime() > d1.date.getTime() - x0.getTime() ? d1 : d0;
         if (d) {
-          const { clientX, clientY } = event as MouseEvent;
-          setTooltip({ show: true, x: clientX + 10, y: clientY - 10, data: d });
+          const me = event as MouseEvent;
+          setTooltip({ show: true, x: me.clientX + 10, y: me.clientY - 10, data: d });
         }
       })
       .on("mouseout", () => setTooltip({ show: false, x: 0, y: 0, data: null }));
@@ -580,7 +585,7 @@ const CategoryPieChart: React.FC<{ data: Category[] }> = ({ data }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    if (!data?.length) return;
+    if (!data.length) return;
 
     const svg = d3.select(svgRef.current!);
     svg.selectAll("*").remove();
@@ -600,11 +605,11 @@ const CategoryPieChart: React.FC<{ data: Category[] }> = ({ data }) => {
 
     const arc = d3.arc<d3.PieArcDatum<Category>>().innerRadius(radius * 0.5).outerRadius(radius);
 
-    const arcs = g.selectAll(".arc").data(pie(data)).enter().append("g").attr("class", "arc");
+    const arcs = g.selectAll<SVGGElement, d3.PieArcDatum<Category>>(".arc").data(pie(data)).enter().append("g").attr("class", "arc");
 
     arcs
       .append("path")
-      .attr("d", arc as any)
+      .attr("d", (d) => arc(d) ?? undefined)
       .attr("fill", (d) => color(d.data.category)!)
       .attr("stroke", "white")
       .attr("stroke-width", 3)
@@ -612,18 +617,18 @@ const CategoryPieChart: React.FC<{ data: Category[] }> = ({ data }) => {
 
     arcs
       .append("text")
-      .attr("transform", (d) => `translate(${(arc as any).centroid(d)})`)
+      .attr("transform", (d) => `translate(${(arc.centroid(d) as [number, number]).join(",")})`)
       .attr("dy", "-0.5em")
       .attr("text-anchor", "middle")
       .attr("font-size", 12)
-      .attr("font-weight", "bold")
+      .attr("font-weight", 700)
       .attr("fill", "white")
       .style("text-shadow", "2px 2px 4px rgba(0,0,0,0.8)")
       .text((d) => d.data.category);
 
     arcs
       .append("text")
-      .attr("transform", (d) => `translate(${(arc as any).centroid(d)})`)
+      .attr("transform", (d) => `translate(${(arc.centroid(d) as [number, number]).join(",")})`)
       .attr("dy", "1em")
       .attr("text-anchor", "middle")
       .attr("font-size", 11)
@@ -640,7 +645,7 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    if (!data?.length) return;
+    if (!data.length) return;
 
     const svg = d3.select(svgRef.current!);
     svg.selectAll("*").remove();
@@ -651,20 +656,17 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const sortedData = [...data].sort((a, b) => b.sales - a.sales);
+    const sorted = [...data].sort((a, b) => b.sales - a.sales);
 
-    const x = d3.scaleBand().domain(sortedData.map((d) => d.segment)).range([0, width]).padding(0.2);
+    const x = d3.scaleBand().domain(sorted.map((d) => d.segment)).range([0, width]).padding(0.2);
 
-    const y = d3
-      .scaleLinear()
-      .domain([0, (d3.max(sortedData, (d) => d.sales) ?? 0) * 1.1])
-      .range([height, 0]);
+    const y = d3.scaleLinear().domain([0, (d3.max(sorted, (d) => d.sales) ?? 0) * 1.1]).range([height, 0]);
 
     const colors = ["#8B5CF6", "#06B6D4", "#F59E0B", "#EC4899"];
 
     g
-      .selectAll(".bar")
-      .data(sortedData)
+      .selectAll<SVGRectElement, Segment>(".bar")
+      .data(sorted)
       .enter()
       .append("rect")
       .attr("class", "bar")
@@ -676,8 +678,8 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
       .attr("opacity", 0.8);
 
     g
-      .selectAll(".label")
-      .data(sortedData)
+      .selectAll<SVGTextElement, Segment>(".label")
+      .data(sorted)
       .enter()
       .append("text")
       .attr("class", "label")
@@ -685,12 +687,11 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
       .attr("y", (d) => y(d.sales) - 5)
       .attr("text-anchor", "middle")
       .attr("font-size", 12)
-      .attr("font-weight", "bold")
+      .attr("font-weight", 700)
       .attr("fill", "#374151")
       .text((d) => `$${(d.sales / 1000).toFixed(0)}K`);
 
     const xAxis = g.append("g").attr("transform", `translate(0,${height})`).call(d3.axisBottom(x));
-
     xAxis
       .selectAll("text")
       .attr("fill", "#374151")
@@ -703,7 +704,7 @@ const SegmentBarChart: React.FC<{ data: Segment[] }> = ({ data }) => {
 
     g
       .append("g")
-      .call(d3.axisLeft(y).tickFormat(((d: d3.NumberValue) => `$${Number(d) / 1000}K`) as any))
+      .call(d3.axisLeft(y).tickFormat(fmtK as any))
       .selectAll("text")
       .attr("fill", "#374151")
       .attr("font-size", 11);
@@ -731,23 +732,35 @@ const ReturnsImpactChart: React.FC<{ data: ReturnsInfo }> = ({ data }) => {
     const radius = Math.min(chartWidth, chartHeight) / 4;
     const donutG = g.append("g").attr("transform", `translate(${radius + 20}, ${chartHeight / 2})`);
 
-    const pie = d3.pie<{ label: string; value: number; color: string }>().value((d) => d.value);
-    const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; color: string }>>().innerRadius(radius * 0.6).outerRadius(radius);
+    type Slice = { label: string; value: number; color: string };
+    const pie = d3.pie<Slice>().value((d) => d.value);
+    const arc = d3.arc<d3.PieArcDatum<Slice>>().innerRadius(radius * 0.6).outerRadius(radius);
 
-    const returnData = [
+    const returnData: Slice[] = [
       { label: "Returned", value: data.returnRate, color: "#EF4444" },
       { label: "Successful", value: 100 - data.returnRate, color: "#10B981" },
     ];
 
-    const arcs = donutG.selectAll(".arc").data(pie(returnData)).enter().append("g").attr("class", "arc");
+    const arcs = donutG.selectAll<SVGGElement, d3.PieArcDatum<Slice>>(".arc").data(pie(returnData)).enter().append("g").attr("class", "arc");
+    arcs.append("path").attr("d", (d) => arc(d) ?? undefined).attr("fill", (d) => d.data.color).attr("opacity", 0.8);
 
-    arcs.append("path").attr("d", arc as any).attr("fill", (d) => d.data.color).attr("opacity", 0.8);
-
-    donutG.append("text").attr("text-anchor", "middle").attr("dy", "-0.5em").attr("font-size", 18).attr("font-weight", "bold").attr("fill", "#EF4444").text(`${data.returnRate}%`);
-    donutG.append("text").attr("text-anchor", "middle").attr("dy", "1em").attr("font-size", 12).attr("fill", "#6B7280").text("Return Rate");
+    donutG
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "-0.5em")
+      .attr("font-size", 18)
+      .attr("font-weight", 700)
+      .attr("fill", "#EF4444")
+      .text(`${data.returnRate}%`);
+    donutG
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "1em")
+      .attr("font-size", 12)
+      .attr("fill", "#6B7280")
+      .text("Return Rate");
 
     const metricsG = g.append("g").attr("transform", `translate(${radius * 2 + 60}, 30)`);
-
     const impactPercentage =
       data.lostRevenue > 0 && data.totalOrders > 0 ? (((data.lostRevenue as number) / (data.lostRevenue * 10)) * 100).toFixed(1) : "0.0";
 
@@ -758,7 +771,7 @@ const ReturnsImpactChart: React.FC<{ data: ReturnsInfo }> = ({ data }) => {
       { label: "Impact on Profit", value: `${impactPercentage}%`, color: "#8B5CF6" },
     ];
 
-    const metricItems = metricsG
+    const metric = metricsG
       .selectAll<SVGGElement, { label: string; value: string; color: string }>(".metric")
       .data(metrics)
       .enter()
@@ -766,11 +779,9 @@ const ReturnsImpactChart: React.FC<{ data: ReturnsInfo }> = ({ data }) => {
       .attr("class", "metric")
       .attr("transform", (_d, i) => `translate(0, ${i * 45})`);
 
-    metricItems.append("rect").attr("width", 4).attr("height", 30).attr("fill", (d) => d.color);
-
-    metricItems.append("text").attr("x", 12).attr("y", 12).attr("font-size", 11).attr("fill", "#6B7280").text((d) => d.label);
-
-    metricItems.append("text").attr("x", 12).attr("y", 26).attr("font-size", 16).attr("font-weight", "bold").attr("fill", "#374151").text((d) => d.value);
+    metric.append("rect").attr("width", 4).attr("height", 30).attr("fill", (d) => d.color);
+    metric.append("text").attr("x", 12).attr("y", 12).attr("font-size", 11).attr("fill", "#6B7280").text((d) => d.label);
+    metric.append("text").attr("x", 12).attr("y", 26).attr("font-size", 16).attr("font-weight", 700).attr("fill", "#374151").text((d) => d.value);
   }, [data]);
 
   return <svg ref={svgRef} width={600} height={300} className="max-w-full h-auto" />;
