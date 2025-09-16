@@ -20,6 +20,14 @@ function useMeasure<T extends HTMLElement>() {
   return { ref, bounds } as const;
 }
 
+const toNum = (v: unknown): number => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+const fmt2 = (v: unknown) => toNum(v).toFixed(2);
+
+
 /* -------------------- Backdrop animado -------------------- */
 function HydroBackdrop() {
   return (
@@ -279,6 +287,13 @@ function CalendarHeatmap({
 }
 
 /* -------------------- Seasonal Radial (araña) - TOOLTIP MEJORADO -------------------- */
+type MonthAgg = {
+  m: number;
+  mean: number;
+  count: number;
+  values: Row[];
+};
+
 function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: number }[]; size?: number }) {
   const { ref, bounds } = useMeasure<HTMLDivElement>();
   const pathRef = useRef<SVGPathElement>(null);
@@ -291,27 +306,32 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
 
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
-  const agg = useMemo(() => {
-    const grp = d3.group(data, (d) => d.date.getUTCMonth());
-    return d3.range(12).map((m) => ({
-      m,
-      mean: d3.mean(grp.get(m) ?? [], (d) => d.value) ?? 0,
-      count: grp.get(m)?.length ?? 0,
-      values: grp.get(m) ?? [],
-    }));
+  const agg = useMemo<MonthAgg[]>(() => {
+    const grp = d3.group<Row>(data, (d) => d.date.getUTCMonth());
+    return d3.range(12).map((m) => {
+      const arr = grp.get(m) ?? [];
+      return {
+        m,
+        mean: (d3.mean(arr, (d) => d.value) ?? 0) as number,
+        count: arr.length,
+        values: arr,
+      };
+    });
   }, [data]);
+
 
   useEffect(() => setMounted(true), []);
 
   const angle = d3.scaleLinear([0, 12], [0, 2 * Math.PI]);
 
   const rScale = useMemo(() => {
-    const ext = d3.extent(agg, (d) => d.mean) as [number, number];
-    const mn = ext[0] ?? 0;
-    const mx = ext[1] ?? 1;
-    const domain = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
+    const ext = d3.extent(agg, (d) => d.mean);
+    const mn = (ext[0] ?? 0) as number;
+    const mx = (ext[1] ?? 1) as number;
+    const domain: [number, number] = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
     return d3.scaleLinear(domain, [R * 0.25, R]).nice();
   }, [agg, R]);
+
 
   const pts = d3.range(13).map((i) => {
     const m = i % 12;
@@ -341,23 +361,24 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
   }, []);
 
   const handlePointMove = useCallback(
-    (event: React.MouseEvent, monthData: any) => {
+    (event: React.MouseEvent, monthData: MonthAgg) => {
       const { m, mean, count, values } = monthData;
-      const min = d3.min(values, (d: any) => d.value) ?? 0;
-      const max = d3.max(values, (d: any) => d.value) ?? 0;
-      const safeMin = typeof min === 'number' ? min : 0;
-      const safeMax = typeof max === 'number' ? max : 0;
-      const safeMean = typeof mean === 'number' ? mean : 0;
+
+      // Fuerza el tipo genérico de d3.min/max a número
+      const min = d3.min<Row, number>(values, (d) => d.value) ?? 0;
+      const max = d3.max<Row, number>(values, (d) => d.value) ?? 0;
+
       setHoverA(angle(m));
       setTooltip({
         anchor: { x: event.clientX, y: event.clientY },
-        content: `${MLAB[m]}: ${safeMean.toFixed(2)} promedio\nMín: ${safeMin.toFixed(2)} | Máx: ${safeMax.toFixed(2)}\n${count} registros`,
+        content: `${MLAB[m]}: ${fmt2(mean)} promedio\nMín: ${fmt2(min)} | Máx: ${fmt2(max)}\n${count} registros`,
         visible: true,
-        forceBelow: true, // Siempre debajo del mouse
+        forceBelow: true,
       });
     },
     [MLAB, angle]
   );
+
 
   const handleLeave = useCallback(() => {
     setHoverA(null);
@@ -436,7 +457,7 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
                 r={4}
                 fill="#00f5ff"
                 className="cursor-pointer hover:r-6 transition-all duration-200"
-                onMouseMove={(e) => handlePointMove(e, monthData)}
+                onMouseMove={(e) => handlePointMove(e, monthData as MonthAgg)}
                 onMouseLeave={handleLeave}
                 filter="drop-shadow(0 0 4px #00f5ff)"
               />
@@ -474,37 +495,46 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
 
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
-  const months = useMemo(() => {
-    const result = d3.groups(data, (d) => d.group).sort((a, b) => a[0] - b[0]);
-    // Cambiar la key para forzar re-animación cuando cambian los datos
-    setAnimationKey(prev => prev + 1);
-    return result;
+  const months = useMemo(
+    () => d3.groups(data, (d) => d.group).sort((a, b) => a[0] - b[0]),
+    [data]
+  );
+
+  useEffect(() => {
+    setAnimationKey((prev) => prev + 1);
   }, [data]);
 
+
   const x = useMemo(() => {
-    const ext = d3.extent(data, (d) => d.value) as [number, number];
-    const mn = ext[0] ?? 0, mx = ext[1] ?? 1;
-    const domain = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
+    const ext = d3.extent(data, (d) => d.value);
+    const mn = (ext[0] ?? 0) as number;
+    const mx = (ext[1] ?? 1) as number;
+    const domain: [number, number] = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
     return d3.scaleLinear().domain(domain).nice().range([0, w]);
   }, [data, w]);
+
 
   const yBand = d3.scaleBand<number>().domain(d3.range(12)).range([0, h]).paddingInner(0.3);
 
   const areas = useMemo(() => {
-    const hist = d3.bin().domain(x.domain() as [number, number]).thresholds(24);
+    const hist = d3.bin<number, number>().domain(x.domain() as [number, number]).thresholds(24);
     return months.map(([m, arr]) => {
-      const bins = hist(arr.map((d) => d.value));
-      const ymax = d3.max(bins, (b) => b.length) || 1;
+      const series = arr.map((d) => d.value);
+      const bins = hist(series);
+      const ymax = (d3.max(bins, (b) => b.length) ?? 1) as number;
       const y = d3.scaleLinear().domain([0, ymax]).range([yBand.bandwidth(), 0]);
+
       const area = d3
         .area<d3.Bin<number, number>>()
         .x((b) => x((b.x0! + b.x1!) / 2))
         .y0(() => (yBand(m) || 0) + yBand.bandwidth())
         .y1((b) => (yBand(m) || 0) + y(b.length))
         .curve(d3.curveCatmullRom.alpha(0.8));
+
       return { m, d: area(bins) ?? "", bins, yScale: y, mean: d3.mean(arr, (d) => d.value) || 0 };
     });
   }, [months, x, yBand]);
+
 
   // Animación INICIAL únicamente (no perpetua)
   useEffect(() => {
