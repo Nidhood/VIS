@@ -64,14 +64,15 @@ function HydroBackdrop() {
   );
 }
 
-/* -------------------- Tooltip inteligente -------------------- */
+/* -------------------- Tooltip inteligente MEJORADO -------------------- */
 type TooltipProps = {
   anchor: { x: number; y: number };
   content: string;
   visible: boolean;
+  forceBelow?: boolean; // Nueva prop para forzar posición debajo
 };
 
-function TooltipSmart({ anchor, content, visible }: TooltipProps) {
+function TooltipSmart({ anchor, content, visible, forceBelow = false }: TooltipProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: 0, top: 0 });
 
@@ -87,10 +88,14 @@ function TooltipSmart({ anchor, content, visible }: TooltipProps) {
     const w = rect.width || 200;
     const h = rect.height || 48;
 
-    // Posición vertical: preferir debajo del cursor
+    // Posición vertical: SIEMPRE debajo del cursor si forceBelow está activo
     let top = anchor.y + pad;
-    if (top + h + pad > vh) {
+    if (!forceBelow && top + h + pad > vh) {
       top = anchor.y - h - pad;
+    }
+    // Si forceBelow está activo, mantener siempre debajo
+    if (forceBelow && top + h + pad > vh) {
+      top = vh - h - pad;
     }
 
     // Posición horizontal: centrar alrededor del cursor
@@ -99,7 +104,7 @@ function TooltipSmart({ anchor, content, visible }: TooltipProps) {
     if (left + w > vw - pad) left = vw - pad - w;
 
     setPos({ left, top });
-  }, [anchor.x, anchor.y, content, visible]);
+  }, [anchor.x, anchor.y, content, visible, forceBelow]);
 
   if (!visible) return null;
 
@@ -169,6 +174,7 @@ function CalendarHeatmap({
         anchor: { x: event.clientX, y: event.clientY },
         content: `${date.toLocaleDateString("es-CO")}: ${value.toFixed(2)}`,
         visible: true,
+        forceBelow: true, // Forzar debajo del mouse
       });
     }
   }, []);
@@ -272,11 +278,11 @@ function CalendarHeatmap({
   );
 }
 
-/* -------------------- Seasonal Radial (araña) -------------------- */
+/* -------------------- Seasonal Radial (araña) - TOOLTIP MEJORADO -------------------- */
 function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: number }[]; size?: number }) {
   const { ref, bounds } = useMeasure<HTMLDivElement>();
   const pathRef = useRef<SVGPathElement>(null);
-  const [tooltip, setTooltip] = useState<TooltipProps>({ anchor: { x: 0, y: 0 }, content: "", visible: false });
+  const [tooltip, setTooltip] = useState<TooltipProps>({ anchor: { x: 0, y: 0 }, content: "", visible: false, forceBelow: true });
   const [mounted, setMounted] = useState(false);
   const [hoverA, setHoverA] = useState<number | null>(null);
 
@@ -339,11 +345,15 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
       const { m, mean, count, values } = monthData;
       const min = d3.min(values, (d: any) => d.value) ?? 0;
       const max = d3.max(values, (d: any) => d.value) ?? 0;
+      const safeMin = typeof min === 'number' ? min : 0;
+      const safeMax = typeof max === 'number' ? max : 0;
+      const safeMean = typeof mean === 'number' ? mean : 0;
       setHoverA(angle(m));
       setTooltip({
         anchor: { x: event.clientX, y: event.clientY },
-        content: `${MLAB[m]}: ${mean.toFixed(2)} promedio\nMín: ${min.toFixed(2)} | Máx: ${max.toFixed(2)}\n${count} registros`,
+        content: `${MLAB[m]}: ${safeMean.toFixed(2)} promedio\nMín: ${safeMin.toFixed(2)} | Máx: ${safeMax.toFixed(2)}\n${count} registros`,
         visible: true,
+        forceBelow: true, // Siempre debajo del mouse
       });
     },
     [MLAB, angle]
@@ -448,12 +458,13 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
   );
 }
 
-/* -------------------- Ridgeline CORREGIDO - sin animación perpetua -------------------- */
+/* -------------------- Ridgeline MEJORADO - tooltip debajo del mouse -------------------- */
 function Ridgeline({ data, height = 420 }: { data: { group: number; value: number }[]; height?: number }) {
   const { ref, bounds } = useMeasure<HTMLDivElement>();
   const gRef = useRef<SVGGElement>(null);
-  const [tooltip, setTooltip] = useState<TooltipProps>({ anchor: { x: 0, y: 0 }, content: "", visible: false });
+  const [tooltip, setTooltip] = useState<TooltipProps>({ anchor: { x: 0, y: 0 }, content: "", visible: false, forceBelow: true });
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{month: number, value: number} | null>(null);
   const [animationKey, setAnimationKey] = useState(0);
 
   const margin = { top: 8, right: 12, bottom: 24, left: 48 };
@@ -525,20 +536,44 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
 
       const svgRect = svgElement.getBoundingClientRect();
       const mouseX = event.clientX - svgRect.left - margin.left;
+      const mouseY = event.clientY - svgRect.top - margin.top;
       const value = x.invert(mouseX);
 
+      // Determinar en qué mes estamos basado en la posición Y
+      let currentMonth = -1;
+      for (let i = 0; i < 12; i++) {
+        const yPos = yBand(i) || 0;
+        const bandwidth = yBand.bandwidth();
+        if (mouseY >= yPos && mouseY <= yPos + bandwidth) {
+          currentMonth = i;
+          break;
+        }
+      }
+
       setHoverX(mouseX);
+      setHoverInfo(currentMonth >= 0 ? { month: currentMonth, value } : null);
+
+      let content = `Valor: ${value.toFixed(2)}`;
+      if (currentMonth >= 0) {
+        const monthData = areas.find(a => a.m === currentMonth);
+        if (monthData) {
+          content = `${MLAB[currentMonth]}\nValor: ${value.toFixed(2)}\nPromedio: ${monthData.mean.toFixed(2)}`;
+        }
+      }
+
       setTooltip({
         anchor: { x: event.clientX, y: event.clientY },
-        content: `Valor: ${value.toFixed(2)}`,
+        content,
         visible: true,
+        forceBelow: true, // Siempre debajo del mouse
       });
     },
-    [x, margin.left]
+    [x, margin.left, margin.top, areas, MLAB]
   );
 
   const handleMouseLeave = useCallback(() => {
     setHoverX(null);
+    setHoverInfo(null);
     setTooltip((prev) => ({ ...prev, visible: false }));
   }, []);
 
@@ -580,6 +615,20 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
               strokeWidth={2}
               strokeDasharray="4,4"
               filter="drop-shadow(0 0 4px #00f5ff)"
+            />
+          )}
+
+          {/* Resaltar mes en hover */}
+          {hoverInfo && (
+            <rect
+              x={0}
+              y={yBand(hoverInfo.month) || 0}
+              width={w}
+              height={yBand.bandwidth()}
+              fill="rgba(0, 245, 255, 0.05)"
+              stroke="rgba(0, 245, 255, 0.3)"
+              strokeWidth={1}
+              strokeDasharray="2,2"
             />
           )}
 
