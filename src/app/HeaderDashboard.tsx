@@ -307,7 +307,7 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
   const agg = useMemo<MonthAgg[]>(() => {
-    const grp = d3.group<Row>(data, (d) => d.date.getUTCMonth());
+    const grp = d3.group<Row, number>(data, (d) => d.date.getUTCMonth());
     return d3.range(12).map((m) => {
       const arr = grp.get(m) ?? [];
       return {
@@ -325,12 +325,13 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
   const angle = d3.scaleLinear([0, 12], [0, 2 * Math.PI]);
 
   const rScale = useMemo(() => {
-    const ext = d3.extent(agg, (d) => d.mean);
+    const ext = d3.extent<MonthAgg, number>(agg, (d) => d.mean);
     const mn = (ext[0] ?? 0) as number;
     const mx = (ext[1] ?? 1) as number;
     const domain: [number, number] = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
     return d3.scaleLinear(domain, [R * 0.25, R]).nice();
   }, [agg, R]);
+
 
 
   const pts = d3.range(13).map((i) => {
@@ -364,20 +365,20 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
     (event: React.MouseEvent, monthData: MonthAgg) => {
       const { m, mean, count, values } = monthData;
 
-      // Fuerza el tipo genérico de d3.min/max a número
       const min = d3.min<Row, number>(values, (d) => d.value) ?? 0;
       const max = d3.max<Row, number>(values, (d) => d.value) ?? 0;
 
       setHoverA(angle(m));
       setTooltip({
         anchor: { x: event.clientX, y: event.clientY },
-        content: `${MLAB[m]}: ${fmt2(mean)} promedio\nMín: ${fmt2(min)} | Máx: ${fmt2(max)}\n${count} registros`,
+        content: `${MLAB[m]}: ${mean.toFixed(2)} promedio\nMín: ${min.toFixed(2)} | Máx: ${max.toFixed(2)}\n${count} registros`,
         visible: true,
         forceBelow: true,
       });
     },
     [MLAB, angle]
   );
+
 
 
   const handleLeave = useCallback(() => {
@@ -495,10 +496,16 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
 
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
-  const months = useMemo(
-    () => d3.groups(data, (d) => d.group).sort((a, b) => a[0] - b[0]),
-    [data]
-  );
+  const months = useMemo(() => {
+    return d3
+      .groups<{ group: number; value: number }, number>(data, (d) => d.group)
+      .sort((a, b) => a[0] - b[0]);
+  }, [data]);
+
+  useEffect(() => {
+    setAnimationKey((prev) => prev + 1);
+  }, [data]);
+
 
   useEffect(() => {
     setAnimationKey((prev) => prev + 1);
@@ -506,7 +513,7 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
 
 
   const x = useMemo(() => {
-    const ext = d3.extent(data, (d) => d.value);
+    const ext = d3.extent<{ group: number; value: number }, number>(data, (d) => d.value);
     const mn = (ext[0] ?? 0) as number;
     const mx = (ext[1] ?? 1) as number;
     const domain: [number, number] = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
