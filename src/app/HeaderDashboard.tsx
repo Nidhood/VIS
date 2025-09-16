@@ -502,9 +502,18 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
 
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
+  type RidgeDatum = { group: number; value: number };
+
   const months = useMemo(() => {
-    return d3
-      .groups<{ group: number; value: number }, number>(data, (d) => d.group)
+    const buckets = new Map<number, RidgeDatum[]>();
+    for (let m = 0; m < 12; m++) buckets.set(m, []);
+
+    for (const d of data) {
+      const g = Math.max(0, Math.min(11, Math.trunc(d.group)));
+      buckets.get(g)!.push(d);
+    }
+
+    return Array.from(buckets, ([k, arr]) => [k, arr] as [number, RidgeDatum[]])
       .sort((a, b) => a[0] - b[0]);
   }, [data]);
 
