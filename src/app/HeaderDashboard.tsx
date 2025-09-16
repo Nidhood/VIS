@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useState, useRef, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import * as d3 from "d3";
 
 /* -------------------- Hook de medida -------------------- */
@@ -85,28 +86,19 @@ function TooltipSmart({ anchor, content, visible, forceBelow = false }: TooltipP
   const [pos, setPos] = useState({ left: 0, top: 0 });
 
   useLayoutEffect(() => {
-    if (!visible || !ref.current) return;
-
+    if (!visible) return;
     const pad = 12;
     const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
     const vh = typeof window !== "undefined" ? window.innerHeight : 768;
 
-    // Obtener dimensiones reales del tooltip
-    const rect = ref.current.getBoundingClientRect();
-    const w = rect.width || 200;
-    const h = rect.height || 48;
+    // medidas del tooltip (si aún no existe, usa defaults)
+    const w = ref.current?.offsetWidth ?? 200;
+    const h = ref.current?.offsetHeight ?? 48;
 
-    // Posición vertical: SIEMPRE debajo del cursor si forceBelow está activo
     let top = anchor.y + pad;
-    if (!forceBelow && top + h + pad > vh) {
-      top = anchor.y - h - pad;
-    }
-    // Si forceBelow está activo, mantener siempre debajo
-    if (forceBelow && top + h + pad > vh) {
-      top = vh - h - pad;
-    }
+    if (!forceBelow && top + h + pad > vh) top = anchor.y - h - pad;
+    if (forceBelow && top + h + pad > vh) top = vh - h - pad;
 
-    // Posición horizontal: centrar alrededor del cursor
     let left = anchor.x - w / 2;
     if (left < pad) left = pad;
     if (left + w > vw - pad) left = vw - pad - w;
@@ -114,23 +106,26 @@ function TooltipSmart({ anchor, content, visible, forceBelow = false }: TooltipP
     setPos({ left, top });
   }, [anchor.x, anchor.y, content, visible, forceBelow]);
 
-  if (!visible) return null;
+  if (!visible || typeof window === "undefined") return null;
 
-  return (
+  const node = (
     <div
       ref={ref}
-      className="fixed pointer-events-none z-50 bg-gray-900/95 text-white px-3 py-2 rounded-lg shadow-lg text-sm border border-cyan-500/50 backdrop-blur whitespace-pre-line"
+      className="fixed pointer-events-none z-[9999] bg-gray-900/95 text-white px-3 py-2 rounded-lg shadow-lg text-sm border border-cyan-500/50 backdrop-blur whitespace-pre-line"
       style={{
         left: pos.left,
         top: pos.top,
         maxWidth: 280,
         opacity: visible ? 1 : 0,
-        transition: 'opacity 0.2s ease-in-out'
+        transition: "opacity 0.15s ease-in-out",
       }}
     >
       {content}
     </div>
   );
+
+  // Portal al body: evita desfases por transform/scale en ancestros
+  return createPortal(node, document.body);
 }
 
 /* -------------------- Calendar Heatmap -------------------- */
@@ -488,6 +483,7 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
 
 /* -------------------- Ridgeline MEJORADO - tooltip debajo del mouse -------------------- */
 function Ridgeline({ data, height = 420 }: { data: { group: number; value: number }[]; height?: number }) {
+  const [marker, setMarker] = useState<{ month: number; x: number; y: number } | null>(null);
   const { ref, bounds } = useMeasure<HTMLDivElement>();
   const gRef = useRef<SVGGElement>(null);
   const [tooltip, setTooltip] = useState<TooltipProps>({ anchor: { x: 0, y: 0 }, content: "", visible: false, forceBelow: true });
@@ -534,33 +530,51 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
   const yBand = d3.scaleBand<number>().domain(d3.range(12)).range([0, h]).paddingInner(0.3);
 
   const areas = useMemo(() => {
-    const hist = d3.bin<number, number>().domain(x.domain() as [number, number]).thresholds(24);
+    const hist = d3.bin<number, number>()
+      .domain(x.domain() as [number, number])
+      .thresholds(24);
+
     return months.map(([m, arr]) => {
       const series = arr.map((d) => d.value);
       const bins = hist(series);
-      const ymax = (d3.max(bins, (b) => b.length) ?? 1) as number;
+
+      const centers = bins.map(b => ( (b.x0! + b.x1!) / 2 ));
+      const counts  = bins.map(b => b.length);
+
+      const ymax = (d3.max(counts) ?? 1) as number;
       const y = d3.scaleLinear().domain([0, ymax]).range([yBand.bandwidth(), 0]);
 
-      const area = d3
-        .area<d3.Bin<number, number>>()
+      const interp = d3.scaleLinear<number, number>()
+        .domain(centers)
+        .range(counts)
+        .clamp(true);
+
+      const area = d3.area<d3.Bin<number, number>>()
         .x((b) => x((b.x0! + b.x1!) / 2))
         .y0(() => (yBand(m) || 0) + yBand.bandwidth())
         .y1((b) => (yBand(m) || 0) + y(b.length))
         .curve(d3.curveCatmullRom.alpha(0.8));
 
-      return { m, d: area(bins) ?? "", bins, yScale: y, mean: d3.mean(arr, (d) => d.value) || 0 };
+      return {
+        m,
+        d: area(bins) ?? "",
+        bins,
+        yScale: y,
+        mean: d3.mean(arr, (d) => d.value) || 0,
+        centers,
+        counts,
+        interp,
+      };
     });
   }, [months, x, yBand]);
 
 
-  // Animación INICIAL únicamente (no perpetua)
   useEffect(() => {
     const sel = d3.select(gRef.current).selectAll<SVGPathElement, unknown>("path.ridge-area");
     sel.each(function (_, i) {
       const path = this as SVGPathElement;
       const L = path.getTotalLength?.() ?? 0;
 
-      // Resetear y animar una sola vez
       d3.select(path)
         .attr("stroke-dasharray", L)
         .attr("stroke-dashoffset", L)
@@ -570,59 +584,96 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
         .ease(d3.easeCubicInOut)
         .attr("stroke-dashoffset", 0)
         .on("end", function() {
-          // IMPORTANTE: Remover stroke-dasharray al finalizar para evitar animaciones perpetuas
           d3.select(this).attr("stroke-dasharray", null);
         });
     });
-  }, [animationKey]); // Solo cuando cambian los datos
+  }, [animationKey]);
+
+  const rafIdRef = useRef<number | null>(null);
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent<SVGRectElement>) => {
-      const svgElement = event.currentTarget.closest("svg") as SVGElement;
+      // Captura referencias/coords AHORA (no dentro del RAF)
+      const target = event.currentTarget as SVGRectElement;
+      const svgElement = target.ownerSVGElement; // <- más robusto que closest('svg')
       if (!svgElement) return;
 
       const svgRect = svgElement.getBoundingClientRect();
-      const mouseX = event.clientX - svgRect.left - margin.left;
-      const mouseY = event.clientY - svgRect.top - margin.top;
-      const value = x.invert(mouseX);
+      const clientX = event.clientX;
+      const clientY = event.clientY;
 
-      // Determinar en qué mes estamos basado en la posición Y
-      let currentMonth = -1;
-      for (let i = 0; i < 12; i++) {
-        const yPos = yBand(i) || 0;
-        const bandwidth = yBand.bandwidth();
-        if (mouseY >= yPos && mouseY <= yPos + bandwidth) {
-          currentMonth = i;
-          break;
+      // Throttle a un frame
+      if (rafIdRef.current !== null) return;
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+
+        const mouseX = clientX - svgRect.left - margin.left;
+        const mouseY = clientY - svgRect.top  - margin.top;
+        const value = x.invert(mouseX);
+
+        // ¿qué fila (mes) está bajo el mouse?
+        let currentMonth = -1;
+        for (let i = 0; i < 12; i++) {
+          const y0 = yBand(i) ?? 0;
+          const hrow = yBand.bandwidth();
+          if (mouseY >= y0 && mouseY <= y0 + hrow) { currentMonth = i; break; }
         }
-      }
 
-      setHoverX(mouseX);
-      setHoverInfo(currentMonth >= 0 ? { month: currentMonth, value } : null);
+        setHoverX(mouseX);
+        setHoverInfo(currentMonth >= 0 ? { month: currentMonth, value } : null);
 
-      let content = `Valor: ${value.toFixed(2)}`;
-      if (currentMonth >= 0) {
-        const monthData = areas.find(a => a.m === currentMonth);
-        if (monthData) {
-          content = `${MLAB[currentMonth]}\nValor: ${value.toFixed(2)}\nPromedio: ${monthData.mean.toFixed(2)}`;
+        let anchorX = clientX;
+        let anchorY = clientY;
+        let content = `Valor: ${value.toFixed(2)}`;
+
+        if (currentMonth >= 0) {
+          const monthArea = areas.find(a => a.m === currentMonth);
+          if (monthArea) {
+            // Altura continua (sin saltos)
+            const countCont = monthArea.interp(value);
+            const px = x(value);  // sigue exactamente al mouse en X
+            const yTop = (yBand(currentMonth) ?? 0) + monthArea.yScale(countCont);
+
+            setMarker({ month: currentMonth, x: px, y: yTop });
+
+            // ancla el tooltip al punto (coords de viewport)
+            anchorX = svgRect.left + margin.left + px;
+            anchorY = svgRect.top  + margin.top  + yTop;
+
+            content = `${MLAB[currentMonth]}
+  Valor≈ ${value.toFixed(2)}
+  Frecuencia≈ ${countCont.toFixed(1)}
+  Promedio fila: ${monthArea.mean.toFixed(2)}`;
+          } else {
+            setMarker(null);
+          }
+        } else {
+          setMarker(null);
         }
-      }
 
-      setTooltip({
-        anchor: { x: event.clientX, y: event.clientY },
-        content,
-        visible: true,
-        forceBelow: true, // Siempre debajo del mouse
+        setTooltip({
+          anchor: { x: anchorX, y: anchorY },
+          content,
+          visible: true,
+          forceBelow: true,
+        });
       });
     },
-    [x, margin.left, margin.top, areas, MLAB]
+    [x, yBand, areas, margin.left, margin.top, MLAB]
   );
 
+
   const handleMouseLeave = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
     setHoverX(null);
     setHoverInfo(null);
+    setMarker(null);
     setTooltip((prev) => ({ ...prev, visible: false }));
   }, []);
+
 
   return (
     <div ref={ref} className="w-full relative neon-scroll">
@@ -662,6 +713,19 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
               strokeWidth={2}
               strokeDasharray="4,4"
               filter="drop-shadow(0 0 4px #00f5ff)"
+            />
+          )}
+
+          {/* Punto de referencia que se mueve con el mouse en la fila activa */}
+          {marker && (
+            <circle
+              cx={marker.x}
+              cy={marker.y}
+              r={5}
+              fill="#00f5ff"
+              stroke="#0ea5e9"
+              strokeWidth={2}
+              filter="drop-shadow(0 0 6px rgba(0,245,255,0.8))"
             />
           )}
 
