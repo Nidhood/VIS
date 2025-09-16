@@ -287,11 +287,13 @@ function CalendarHeatmap({
 }
 
 /* -------------------- Seasonal Radial (araña) - TOOLTIP MEJORADO -------------------- */
+type RadialDatum = { date: Date; value: number };
+
 type MonthAgg = {
   m: number;
   mean: number;
   count: number;
-  values: Row[];
+  values: RadialDatum[]; // << antes decía Row[]
 };
 
 function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: number }[]; size?: number }) {
@@ -307,9 +309,15 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
   const MLAB = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dec"];
 
   const agg = useMemo<MonthAgg[]>(() => {
-    const grp = d3.group<Row, number>(data, (d) => d.date.getUTCMonth());
+    const bucket = new Map<number, RadialDatum[]>();
+    for (let m = 0; m < 12; m++) bucket.set(m, []);
+    for (const d of data) {
+      const m = d.date.getUTCMonth();
+      bucket.get(m)!.push(d);
+    }
+
     return d3.range(12).map((m) => {
-      const arr = grp.get(m) ?? [];
+      const arr = bucket.get(m)!;
       return {
         m,
         mean: (d3.mean(arr, (d) => d.value) ?? 0) as number,
@@ -331,8 +339,6 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
     const domain: [number, number] = mn === mx ? [mn - 1, mx + 1] : [mn, mx];
     return d3.scaleLinear(domain, [R * 0.25, R]).nice();
   }, [agg, R]);
-
-
 
   const pts = d3.range(13).map((i) => {
     const m = i % 12;
@@ -365,8 +371,8 @@ function SeasonalRadial({ data, size = 420 }: { data: { date: Date; value: numbe
     (event: React.MouseEvent, monthData: MonthAgg) => {
       const { m, mean, count, values } = monthData;
 
-      const min = d3.min<Row, number>(values, (d) => d.value) ?? 0;
-      const max = d3.max<Row, number>(values, (d) => d.value) ?? 0;
+      const min = d3.min<RadialDatum, number>(values, (d) => d.value) ?? 0;
+      const max = d3.max<RadialDatum, number>(values, (d) => d.value) ?? 0;
 
       setHoverA(angle(m));
       setTooltip({
@@ -501,11 +507,6 @@ function Ridgeline({ data, height = 420 }: { data: { group: number; value: numbe
       .groups<{ group: number; value: number }, number>(data, (d) => d.group)
       .sort((a, b) => a[0] - b[0]);
   }, [data]);
-
-  useEffect(() => {
-    setAnimationKey((prev) => prev + 1);
-  }, [data]);
-
 
   useEffect(() => {
     setAnimationKey((prev) => prev + 1);
