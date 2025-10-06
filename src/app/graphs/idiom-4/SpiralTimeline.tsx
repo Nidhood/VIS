@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import {useColorCategStatus, useStore} from "@/app/graphs/useData"
 
 export default function SpiralTimeline() {
-  const { view } = useStore();
+  const { view, highlight, setHighlight } = useStore();
   const ref = useRef<SVGSVGElement | null>(null);
   const color = useColorCategStatus();
 
@@ -56,7 +56,7 @@ export default function SpiralTimeline() {
     const maxRadius = Math.min(W, H) * 0.42;
     const innerRadius = maxRadius * 0.25;
 
-    const { segments, years, statuses } = data;
+    const { segments, years } = data;
 
     const yearScale = d3.scaleLinear()
       .domain([d3.min(years)!, d3.max(years)!])
@@ -68,6 +68,16 @@ export default function SpiralTimeline() {
       .range([0.3, 1.0]);
 
     const g = svg.append("g");
+
+    // Agregar un rect invisible para capturar mouse leave
+    g.append("rect")
+      .attr("width", W)
+      .attr("height", H)
+      .attr("fill", "transparent")
+      .style("pointer-events", "all")
+      .on("mouseleave", () => {
+        setHighlight(null);
+      });
 
     segments.forEach(seg => {
       const innerR = yearScale(seg.year);
@@ -92,15 +102,29 @@ export default function SpiralTimeline() {
           .endAngle(endAngle);
 
         const baseColor = color(status);
-        const opacity = opacityScale(count);
+        const baseOpacity = opacityScale(count);
+
+        const isHighlighted = () => {
+          if (!highlight) return false;
+          return (highlight.status && highlight.status === status) ||
+            (highlight.year !== undefined && highlight.year === seg.year) ||
+            (highlight.month !== undefined && highlight.month === seg.month);
+        };
 
         g.append("path")
           .attr("d", arc as any)
           .attr("fill", baseColor)
-          .attr("opacity", opacity)
+          .attr("opacity", () => {
+            if (!highlight) return baseOpacity;
+            return isHighlighted() ? Math.min(baseOpacity * 1.3, 1) : baseOpacity * 0.25;
+          })
           .attr("stroke", "rgba(255,255,255,0.1)")
           .attr("stroke-width", 0.5)
-          .attr("transform", `translate(${centerX},${centerY})`);
+          .attr("transform", `translate(${centerX},${centerY})`)
+          .style("cursor", "pointer")
+          .on("mouseenter", function() {
+            setHighlight({ status, year: seg.year, month: seg.month });
+          });
 
         currentInnerR = segmentOuterR;
       });
@@ -136,7 +160,7 @@ export default function SpiralTimeline() {
         .text(year);
     });
 
-  }, [data, color]);
+  }, [data, color, highlight, setHighlight]);
 
   return <div className="card"><svg ref={ref} preserveAspectRatio="xMidYMid meet" /></div>;
 }

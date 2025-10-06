@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useColorCategStatus, useStore } from "@/app/graphs/useData";
 
 export default function ArcDiagram() {
-  const { view } = useStore();
+  const { view, highlight, setHighlight } = useStore();
   const ref = useRef<SVGSVGElement | null>(null);
   const color = useColorCategStatus();
 
@@ -45,12 +45,31 @@ export default function ArcDiagram() {
 
     const g = svg.append("g");
 
+    // Agregar un rect invisible para capturar mouse leave
+    g.append("rect")
+      .attr("width", W)
+      .attr("height", H)
+      .attr("fill", "transparent")
+      .style("pointer-events", "all")
+      .on("mouseleave", () => {
+        setHighlight(null);
+      });
+
+    const isHighlighted = (link: typeof links[0]) => {
+      if (!highlight) return false;
+      return (highlight.company && link.source === highlight.company) ||
+        (highlight.status && link.target === highlight.status);
+    };
+
     g.selectAll("path.link")
       .data(links)
       .join("path")
       .attr("fill", "none")
       .attr("stroke", (d) => color(d.target))
-      .attr("stroke-opacity", 0.45)
+      .attr("stroke-opacity", (d) => {
+        if (!highlight) return 0.45;
+        return isHighlighted(d) ? 0.9 : 0.15;
+      })
       .attr("stroke-width", (d) => Math.max(1, Math.sqrt(d.v)))
       .attr("d", (d) => {
         const x1 = xScale(d.source)!;
@@ -58,6 +77,10 @@ export default function ArcDiagram() {
         const y = H * 0.78;
         const r = Math.abs(x2 - x1) / 2;
         return `M${x1},${y} A${r},${r} 0 0,1 ${x2},${y}`;
+      })
+      .style("cursor", "pointer")
+      .on("mouseenter", function(event, d) {
+        setHighlight({ company: d.source, status: d.target });
       });
 
     g
@@ -69,8 +92,16 @@ export default function ArcDiagram() {
       .attr("text-anchor", "middle")
       .attr("fill", "#d1d5db")
       .attr("font-size", 11)
-      .text((d) => d.id);
-  }, [nodes, links, color]);
+      .text((d) => d.id)
+      .style("cursor", "pointer")
+      .on("mouseenter", function(event, d) {
+        if (d.type === "company") {
+          setHighlight({ company: d.id });
+        } else {
+          setHighlight({ status: d.id });
+        }
+      });
+  }, [nodes, links, color, highlight, setHighlight]);
 
   return <div className="card"><svg ref={ref} preserveAspectRatio="xMidYMid meet" /></div>;
 }

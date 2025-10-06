@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useColorSequentialCost, useStore } from "@/app/graphs/useData"
 
 export default function Streamgraph() {
-  const { view } = useStore();
+  const { view, highlight, setHighlight } = useStore();
   const ref = useRef<SVGSVGElement | null>(null);
   const col = useColorSequentialCost();
 
@@ -49,6 +49,16 @@ export default function Streamgraph() {
 
     const g = svg.append("g");
 
+    // Agregar un rect invisible para capturar mouse leave
+    g.append("rect")
+      .attr("width", W)
+      .attr("height", H)
+      .attr("fill", "transparent")
+      .style("pointer-events", "all")
+      .on("mouseleave", () => {
+        setHighlight(null);
+      });
+
     const x = d3.scalePoint(series.months, [40, W - 40]);
     const y = d3.scaleLinear().domain([-(series.max || 1), series.max || 1]).range([H - 30, 20]);
 
@@ -64,8 +74,16 @@ export default function Streamgraph() {
       .data(series.stack)
       .join("path")
       .attr("fill", (_, i) => col((i / Math.max(1, series.stack.length - 1)) * 120))
-      .attr("opacity", 0.9)
-      .attr("d", area as any);
+      .attr("opacity", (d) => {
+        if (!highlight) return 0.9;
+        const company = d.key;
+        return highlight.company === company ? 1 : 0.2;
+      })
+      .attr("d", area as any)
+      .style("cursor", "pointer")
+      .on("mouseenter", function(event, d) {
+        setHighlight({ company: d.key });
+      });
 
     g
       .selectAll("text.xt")
@@ -77,7 +95,7 @@ export default function Streamgraph() {
       .attr("font-size", 10)
       .attr("text-anchor", "middle")
       .text((d) => d);
-  }, [series, col]);
+  }, [series, col, highlight, setHighlight]);
 
   return (
     <div className="card">

@@ -19,6 +19,13 @@ export type Filters = {
   statuses: string[];
 };
 
+export type Highlight = {
+  company?: string;
+  status?: string;
+  year?: number;
+  month?: number;
+} | null;
+
 type Store = {
   raw: Row[];
   view: Row[];
@@ -27,6 +34,11 @@ type Store = {
   allStatuses: string[];
   filters: Filters;
   setFilters: (f: Filters) => void;
+  highlight: Highlight;
+  setHighlight: (h: Highlight) => void;
+  selectedCompanies: string[];
+  setSelectedCompanies: (companies: string[]) => void;
+  randomizeCompanies: () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -34,6 +46,8 @@ const Ctx = createContext<Store | null>(null);
 export function Provider({ children }: { children: React.ReactNode }) {
   const [raw, setRaw] = useState<Row[]>([]);
   const [filters, setFilters] = useState<Filters>({ companies: [], years: [], statuses: [] });
+  const [highlight, setHighlight] = useState<Highlight>(null);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
 
   useEffect(() => {
     d3.csv("/data/Space_Corrected.csv").then((rows) => {
@@ -67,18 +81,50 @@ export function Provider({ children }: { children: React.ReactNode }) {
   );
   const allStatuses = useMemo(() => Array.from(new Set(raw.map((r) => r.statusMission))).sort(), [raw]);
 
+  const randomizeCompanies = () => {
+    let selected: string[];
+    if (allCompanies.length <= 10) {
+      selected = allCompanies;
+    } else {
+      const shuffled = [...allCompanies].sort(() => Math.random() - 0.5);
+      selected = shuffled.slice(0, 10);
+    }
+    setSelectedCompanies(selected);
+    setFilters({ ...filters, companies: selected });
+  };
+  useEffect(() => {
+    if (allCompanies.length > 0 && selectedCompanies.length === 0) {
+      randomizeCompanies();
+    }
+  }, [allCompanies]);
+
   const view = useMemo(() => {
     return raw.filter((r) => {
+      const okSelected = selectedCompanies.length === 0 || selectedCompanies.includes(r.company);
       const okC = filters.companies.length === 0 || filters.companies.includes(r.company);
       const okY = filters.years.length === 0 || (r.year !== null && filters.years.includes(r.year));
       const okS = filters.statuses.length === 0 || filters.statuses.includes(r.statusMission);
-      return okC && okY && okS;
+
+      return okSelected && okC && okY && okS;
     });
-  }, [raw, filters]);
+  }, [raw, filters, selectedCompanies]);
 
   const value: Store = useMemo(
-    () => ({ raw, view, allCompanies, allYears, allStatuses, filters, setFilters }),
-    [raw, view, allCompanies, allYears, allStatuses, filters]
+    () => ({
+      raw,
+      view,
+      allCompanies,
+      allYears,
+      allStatuses,
+      filters,
+      setFilters,
+      highlight,
+      setHighlight,
+      selectedCompanies,
+      setSelectedCompanies,
+      randomizeCompanies
+    }),
+    [raw, view, allCompanies, allYears, allStatuses, filters, highlight, selectedCompanies]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -106,7 +152,6 @@ export function useColorCategStatus() {
   const scale = d3.scaleOrdinal<string,string>().domain(allStatuses).range(cat);
   return (s: string) => scale(s);
 }
-
 
 export function useColorSequentialCost() {
   const css = getComputedStyle(document.documentElement);

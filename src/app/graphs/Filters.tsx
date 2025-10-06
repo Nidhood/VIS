@@ -3,7 +3,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { useStore } from "@/app/graphs/useData";
 
 export default function Filters() {
-  const { allCompanies, allYears, allStatuses, filters, setFilters } = useStore();
+  const { raw, allCompanies, allYears, allStatuses, filters, setFilters } = useStore();
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const dropdownRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
@@ -35,17 +35,36 @@ export default function Filters() {
     }
   }, [openFilter]);
 
+  // Función para verificar si una combinación tiene datos
+  const hasData = (filterType: 'company' | 'year' | 'status', value: string | number) => {
+    return raw.some((row) => {
+      const okC = filterType === 'company' || filters.companies.length === 0 || filters.companies.includes(row.company);
+      const okY = filterType === 'year' || filters.years.length === 0 || (row.year !== null && filters.years.includes(row.year));
+      const okS = filterType === 'status' || filters.statuses.length === 0 || filters.statuses.includes(row.statusMission);
+
+      const matchValue =
+        (filterType === 'company' && row.company === value) ||
+        (filterType === 'year' && row.year === value) ||
+        (filterType === 'status' && row.statusMission === value);
+
+      return okC && okY && okS && matchValue;
+    });
+  };
+
   const onCompany = (v: string) => {
+    if (!hasData('company', v) && !filters.companies.includes(v)) return;
     const next = filters.companies.includes(v) ? filters.companies.filter((x) => x !== v) : [...filters.companies, v];
     setFilters({ ...filters, companies: next });
   };
 
   const onYear = (v: number) => {
+    if (!hasData('year', v) && !filters.years.includes(v)) return;
     const next = filters.years.includes(v) ? filters.years.filter((x) => x !== v) : [...filters.years, v];
     setFilters({ ...filters, years: next });
   };
 
   const onStatus = (v: string) => {
+    if (!hasData('status', v) && !filters.statuses.includes(v)) return;
     const next = filters.statuses.includes(v) ? filters.statuses.filter((x) => x !== v) : [...filters.statuses, v];
     setFilters({ ...filters, statuses: next });
   };
@@ -106,22 +125,30 @@ export default function Filters() {
             }}
           >
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(100px, 1fr))", gap: 8 }}>
-              {allCompanies.map((c) => (
-                <button
-                  key={c}
-                  className="sel"
-                  onClick={() => onCompany(c)}
-                  style={{
-                    background: filters.companies.includes(c) ? "#172554" : "#0f1016",
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    fontSize: '13px',
-                    padding: '10px 8px',
-                    whiteSpace: 'nowrap'
-                  }}>
-                  {c}
-                </button>
-              ))}
+              {allCompanies.map((c) => {
+                const available = hasData('company', c);
+                const isSelected = filters.companies.includes(c);
+
+                return (
+                  <button
+                    key={c}
+                    className="sel"
+                    onClick={() => onCompany(c)}
+                    disabled={!available && !isSelected}
+                    style={{
+                      background: isSelected ? "#172554" : "#0f1016",
+                      cursor: (available || isSelected) ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.2s',
+                      fontSize: '13px',
+                      padding: '10px 8px',
+                      whiteSpace: 'nowrap',
+                      color: (available || isSelected) ? '#d1d5db' : '#4b5563',
+                      opacity: (available || isSelected) ? 1 : 0.4
+                    }}>
+                    {c}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -159,21 +186,29 @@ export default function Filters() {
             }}
           >
             <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(55px, 1fr))", gap: 8 }}>
-              {allYears.map((y) => (
-                <button
-                  key={y}
-                  className="sel"
-                  onClick={() => onYear(y)}
-                  style={{
-                    background: filters.years.includes(y) ? "#172554" : "#0f1016",
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    fontSize: '13px',
-                    padding: '10px 8px'
-                  }}>
-                  {y}
-                </button>
-              ))}
+              {allYears.map((y) => {
+                const available = hasData('year', y);
+                const isSelected = filters.years.includes(y);
+
+                return (
+                  <button
+                    key={y}
+                    className="sel"
+                    onClick={() => onYear(y)}
+                    disabled={!available && !isSelected}
+                    style={{
+                      background: isSelected ? "#172554" : "#0f1016",
+                      cursor: (available || isSelected) ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.2s',
+                      fontSize: '13px',
+                      padding: '10px 8px',
+                      color: (available || isSelected) ? '#d1d5db' : '#4b5563',
+                      opacity: (available || isSelected) ? 1 : 0.4
+                    }}>
+                    {y}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -210,22 +245,30 @@ export default function Filters() {
             }}
           >
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(120px, 1fr))", gap: 8 }}>
-              {allStatuses.map((s) => (
-                <button
-                  key={s}
-                  className="sel"
-                  onClick={() => onStatus(s)}
-                  style={{
-                    background: filters.statuses.includes(s) ? "#172554" : "#0f1016",
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    fontSize: '13px',
-                    padding: '10px 8px',
-                    whiteSpace: 'nowrap'
-                  }}>
-                  {s}
-                </button>
-              ))}
+              {allStatuses.map((s) => {
+                const available = hasData('status', s);
+                const isSelected = filters.statuses.includes(s);
+
+                return (
+                  <button
+                    key={s}
+                    className="sel"
+                    onClick={() => onStatus(s)}
+                    disabled={!available && !isSelected}
+                    style={{
+                      background: isSelected ? "#172554" : "#0f1016",
+                      cursor: (available || isSelected) ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.2s',
+                      fontSize: '13px',
+                      padding: '10px 8px',
+                      whiteSpace: 'nowrap',
+                      color: (available || isSelected) ? '#d1d5db' : '#4b5563',
+                      opacity: (available || isSelected) ? 1 : 0.4
+                    }}>
+                    {s}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

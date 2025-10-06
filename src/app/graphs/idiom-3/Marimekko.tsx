@@ -7,7 +7,7 @@ type Cell = { status: string; n: number; mean: number; r: number; h: number };
 type Col = { company: string; w: number; cells: Cell[] };
 
 export default function Marimekko() {
-  const { view } = useStore();
+  const { view, highlight, setHighlight } = useStore();
   const ref = useRef<SVGSVGElement | null>(null);
   const div = useColorDiverging();
 
@@ -37,7 +37,6 @@ export default function Marimekko() {
       return { company: c as string, w, cells };
     });
 
-
     return { norm };
   }, [view]);
 
@@ -54,11 +53,29 @@ export default function Marimekko() {
 
     let x = 0;
     const g = svg.append("g");
+
+    // Agregar un rect invisible para capturar mouse leave
+    g.append("rect")
+      .attr("width", W)
+      .attr("height", H)
+      .attr("fill", "transparent")
+      .style("pointer-events", "all")
+      .on("mouseleave", () => {
+        setHighlight(null);
+      });
+
     data.norm.forEach((col) => {
       const cw = col.w * (W - 60);
       let y = 20;
       col.cells.forEach((cell) => {
         const ch = cell.h * (H - 40);
+
+        const isHighlighted = () => {
+          if (!highlight) return false;
+          return (highlight.company && highlight.company === col.company) ||
+            (highlight.status && highlight.status === cell.status);
+        };
+
         g
           .append("rect")
           .attr("x", 30 + x)
@@ -66,9 +83,17 @@ export default function Marimekko() {
           .attr("width", cw)
           .attr("height", ch)
           .attr("fill", div(Math.max(-1, Math.min(1, cell.r))))
-          .attr("opacity", 0.9);
+          .attr("opacity", () => {
+            if (!highlight) return 0.9;
+            return isHighlighted() ? 1 : 0.25;
+          })
+          .style("cursor", "pointer")
+          .on("mouseenter", function() {
+            setHighlight({ company: col.company, status: cell.status });
+          });
         y += ch;
       });
+
       g
         .append("text")
         .attr("x", 30 + x + cw / 2)
@@ -76,10 +101,14 @@ export default function Marimekko() {
         .attr("text-anchor", "middle")
         .attr("fill", "#cbd5e1")
         .attr("font-size", 10)
-        .text(col.company);
+        .text(col.company)
+        .style("cursor", "pointer")
+        .on("mouseenter", function() {
+          setHighlight({ company: col.company });
+        });
       x += cw;
     });
-  }, [data, div]);
+  }, [data, div, highlight, setHighlight]);
 
   return <div className="card"><svg ref={ref} preserveAspectRatio="xMidYMid meet" /></div>;
 }
