@@ -37,6 +37,7 @@ export default function Marimekko() {
       return { company: c as string, w, cells };
     });
 
+
     return { norm };
   }, [view]);
 
