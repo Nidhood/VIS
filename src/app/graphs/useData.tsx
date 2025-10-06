@@ -36,8 +36,6 @@ type Store = {
   setFilters: (f: Filters) => void;
   highlight: Highlight;
   setHighlight: (h: Highlight) => void;
-  selectedCompanies: string[];
-  setSelectedCompanies: (companies: string[]) => void;
   randomizeCompanies: () => void;
 };
 
@@ -47,7 +45,6 @@ export function Provider({ children }: { children: React.ReactNode }) {
   const [raw, setRaw] = useState<Row[]>([]);
   const [filters, setFilters] = useState<Filters>({ companies: [], years: [], statuses: [] });
   const [highlight, setHighlight] = useState<Highlight>(null);
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
 
   useEffect(() => {
     d3.csv("/data/Space_Corrected.csv").then((rows) => {
@@ -89,25 +86,24 @@ export function Provider({ children }: { children: React.ReactNode }) {
       const shuffled = [...allCompanies].sort(() => Math.random() - 0.5);
       selected = shuffled.slice(0, 10);
     }
-    setSelectedCompanies(selected);
-    setFilters({ ...filters, companies: selected });
+    setFilters({ companies: selected, years: [], statuses: [] });
   };
+
   useEffect(() => {
-    if (allCompanies.length > 0 && selectedCompanies.length === 0) {
+    if (allCompanies.length > 0 && filters.companies.length === 0) {
       randomizeCompanies();
     }
   }, [allCompanies]);
 
   const view = useMemo(() => {
     return raw.filter((r) => {
-      const okSelected = selectedCompanies.length === 0 || selectedCompanies.includes(r.company);
       const okC = filters.companies.length === 0 || filters.companies.includes(r.company);
       const okY = filters.years.length === 0 || (r.year !== null && filters.years.includes(r.year));
       const okS = filters.statuses.length === 0 || filters.statuses.includes(r.statusMission);
 
-      return okSelected && okC && okY && okS;
+      return okC && okY && okS;
     });
-  }, [raw, filters, selectedCompanies]);
+  }, [raw, filters]);
 
   const value: Store = useMemo(
     () => ({
@@ -120,11 +116,9 @@ export function Provider({ children }: { children: React.ReactNode }) {
       setFilters,
       highlight,
       setHighlight,
-      selectedCompanies,
-      setSelectedCompanies,
       randomizeCompanies
     }),
-    [raw, view, allCompanies, allYears, allStatuses, filters, highlight, selectedCompanies]
+    [raw, view, allCompanies, allYears, allStatuses, filters, highlight]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
