@@ -144,18 +144,51 @@ function PageContent() {
         background: 'rgba(10, 10, 12, 0.95)',
         backdropFilter: 'blur(10px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-        padding: '16px 0'
+        padding: '16px 20px'
       }}>
-        <h1 style={{
-          textAlign: 'center',
-          fontSize: '32px',
-          fontWeight: '700',
-          color: '#f3f4f6',
-          letterSpacing: '1px',
-          margin: 0
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          gap: '20px'
         }}>
-          Space Missions • Storyboard
-        </h1>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '2px'
+          }}>
+            <span style={{
+              fontSize: '13px',
+              color: '#94a3b8',
+              fontWeight: '500',
+              letterSpacing: '0.3px'
+            }}>
+              Santiago Castro Zuluaga
+            </span>
+            <span style={{
+              fontSize: '13px',
+              color: '#94a3b8',
+              fontWeight: '500',
+              letterSpacing: '0.3px'
+            }}>
+              Iván Darío Orozco Ibáñez
+            </span>
+          </div>
+
+          <h1 style={{
+            fontSize: '32px',
+            fontWeight: '700',
+            color: '#f3f4f6',
+            letterSpacing: '1px',
+            margin: 0,
+            textAlign: 'center'
+          }}>
+            Space Missions • Storyboard
+          </h1>
+
+          <div />
+        </div>
       </div>
 
       <div style={{
