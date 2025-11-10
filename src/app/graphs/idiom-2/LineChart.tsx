@@ -124,6 +124,37 @@ export default function LineChart() {
       return selectedContinents.includes(c) ? 1 : 0.15;
     };
 
+    const visibleGroups = groups.filter(g =>
+      selectedContinents.length === 0 || selectedContinents.includes(g.continent)
+    );
+
+    const labelData = visibleGroups.map(g => {
+      const last = g.values[g.values.length - 1];
+      const col = colors[groups.findIndex(gr => gr.continent === g.continent) % colors.length];
+      return {
+        continent: g.continent,
+        y: y(last.production),
+        value: last.production,
+        color: col
+      };
+    }).sort((a, b) => a.y - b.y);
+
+    const minSpacing = 36;
+    const adjustedPositions: Array<{ continent: string; y: number }> = [];
+
+    labelData.forEach((item, idx) => {
+      let targetY = item.y;
+
+      if (idx > 0) {
+        const prevPos = adjustedPositions[idx - 1].y;
+        if (targetY < prevPos + minSpacing) {
+          targetY = prevPos + minSpacing;
+        }
+      }
+
+      adjustedPositions.push({ continent: item.continent, y: targetY });
+    });
+
     groups.forEach((g, i) => {
       const col = colors[i % colors.length];
 
@@ -180,42 +211,54 @@ export default function LineChart() {
       });
 
       const last = g.values[g.values.length - 1];
-      if (last) {
+      const shouldShow = selectedContinents.length === 0 || selectedContinents.includes(g.continent);
+
+      if (last && shouldShow) {
         const lx = x(last.year);
-        const ly = y(last.production);
+        const adjustedPos = adjustedPositions.find(p => p.continent === g.continent);
+
+        if (!adjustedPos) return;
+
+        const finalY = adjustedPos.y;
+
+        const labelText = g.continent;
+        const valueText = d3.format(".2s")(last.production).replace("G", "B");
 
         const label = svg
           .append("text")
           .attr("x", lx + 12)
-          .attr("y", ly - 8)
+          .attr("y", finalY - 8)
           .attr("text-anchor", "start")
           .attr("fill", col)
           .style("font", "bold 13px ui-sans-serif, system-ui")
-          .text(g.continent)
-          .attr("opacity", dim(g.continent));
+          .text(labelText);
 
         const value = svg
           .append("text")
           .attr("x", lx + 12)
-          .attr("y", ly + 8)
+          .attr("y", finalY + 8)
           .attr("text-anchor", "start")
           .attr("fill", "rgba(238,242,255,0.92)")
           .style("font", "11px ui-sans-serif, system-ui")
-          .text(d3.format(".2s")(last.production).replace("G", "B"))
-          .attr("opacity", dim(g.continent));
+          .text(valueText);
 
-        const box = svg.append("rect").attr("fill", "rgba(26,26,46,0.92)").attr("rx", 3).attr("opacity", dim(g.continent));
+        const b1 = (label.node() as SVGTextElement).getBBox();
+        const b2 = (value.node() as SVGTextElement).getBBox();
 
-        const fit = () => {
-          const b1 = (label.node() as SVGTextElement).getBBox();
-          const b2 = (value.node() as SVGTextElement).getBBox();
-          const x0 = Math.min(b1.x, b2.x) - 6;
-          const y0 = Math.min(b1.y, b2.y) - 4;
-          const x1 = Math.max(b1.x + b1.width, b2.x + b2.width) + 6;
-          const y1 = Math.max(b1.y + b1.height, b2.y + b2.height) + 4;
-          box.attr("x", x0).attr("y", y0).attr("width", x1 - x0).attr("height", y1 - y0).lower();
-        };
-        fit();
+        const x0 = Math.min(b1.x, b2.x) - 6;
+        const y0 = Math.min(b1.y, b2.y) - 4;
+        const x1 = Math.max(b1.x + b1.width, b2.x + b2.width) + 6;
+        const y1 = Math.max(b1.y + b1.height, b2.y + b2.height) + 4;
+
+        svg
+          .append("rect")
+          .attr("x", x0)
+          .attr("y", y0)
+          .attr("width", x1 - x0)
+          .attr("height", y1 - y0)
+          .attr("fill", "rgba(26,26,46,0.92)")
+          .attr("rx", 3)
+          .lower();
       }
     });
 
