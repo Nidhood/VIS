@@ -106,7 +106,6 @@ const isRenew = (v: string, s: string = "") =>
 const isFossil = (v: string, s: string = "") =>
   /fossil|coal|gas|oil/i.test(v) || /fossil|coal|gas|oil/i.test(s);
 
-// Mapeo de países a continentes
 const CONTINENT_MAP: Record<string, string> = {
   "United States": "América", "Canada": "América", "Mexico": "América", "Brazil": "América",
   "Argentina": "América", "Chile": "América", "Colombia": "América", "Peru": "América",
@@ -164,6 +163,53 @@ export function continentCleanShare(emberRows: EmberRow[]) {
     years.forEach(([year, data]) => {
       if (data.total > 0) {
         result.push({ continent, year: +year, cleanShare: data.cleanShare });
+      }
+    });
+  });
+  return result.sort((a, b) => a.year - b.year || a.continent.localeCompare(b.continent));
+}
+
+export function continentEnergyProduction(emberRows: EmberRow[]) {
+  const relevant = emberRows.filter((d) =>
+    d.year >= 2000 && d.year <= 2023 && d.value > 0 && d.category && d.variable
+  );
+
+  const countryToContinent = new Map<string, string>();
+  Object.entries(CONTINENT_MAP).forEach(([country, continent]) => {
+    countryToContinent.set(country, continent);
+  });
+
+  const byContinentYear = d3.rollups(
+    relevant.filter(d => countryToContinent.has(d.area)),
+    (arr) => {
+      const production = d3.sum(arr.filter((x) =>
+        x.category.toLowerCase().includes("generation") ||
+        x.category.toLowerCase().includes("production") ||
+        x.variable.toLowerCase().includes("generation")
+      ), (d) => d.value);
+
+      const consumption = d3.sum(arr.filter((x) =>
+        x.category.toLowerCase().includes("demand") ||
+        x.variable.toLowerCase().includes("demand") ||
+        x.variable.toLowerCase().includes("consumption")
+      ), (d) => d.value);
+
+      return { production, consumption };
+    },
+    (d) => countryToContinent.get(d.area)!,
+    (d) => d.year
+  );
+
+  const result: Array<{ continent: string; year: number; production: number; consumption: number }> = [];
+  byContinentYear.forEach(([continent, years]) => {
+    years.forEach(([year, data]) => {
+      if (data.production > 0 || data.consumption > 0) {
+        result.push({
+          continent,
+          year: +year,
+          production: data.production,
+          consumption: data.consumption
+        });
       }
     });
   });
