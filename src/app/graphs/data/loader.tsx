@@ -1,32 +1,36 @@
-"use server";
-
 import fs from "fs";
 import path from "path";
 import { parse } from "csv-parse/sync";
 import * as d3 from "d3";
 
-const DATA_DIR = path.resolve("public", "data");
-const EMBER = path.join(DATA_DIR, "ember_tidy.csv");
+const DATA_DIR = path.resolve(process.cwd(), "public", "data");
+const EMBER = path.join(DATA_DIR, "yearly_full_release_long_format_clean.csv");
 const COINS_UNIFIED = path.join(DATA_DIR, "crypto_clean.csv");
-const WDI_TIDY = path.join(DATA_DIR, "worldbank_tidy.csv");
+const WDI = path.join(DATA_DIR, "worldbank_cleaned.csv");
 
 type EmberRow = {
   area: string;
+  iso_3_code?: string;
   year: number;
   category: string;
+  subcategory: string;
   variable: string;
-  subcategory?: string;
   unit: string;
   value: number;
 };
 
 type CoinRow = {
+  sno: number;
+  name: string;
   symbol: string;
   date: Date;
   year: number;
+  high: number;
+  low: number;
+  open: number;
   close: number;
-  marketcap: number | null;
-  volume: number | null;
+  volume: number;
+  marketcap: number;
 };
 
 type WdiRow = {
@@ -34,7 +38,7 @@ type WdiRow = {
   country_code: string;
   series_name: string;
   series_code: string;
-  Year: number;
+  year: number;
   value: number;
 };
 
@@ -56,6 +60,7 @@ const readCSV = (file: string) =>
 export function loadEmberLong(): EmberRow[] {
   const rows = readCSV(EMBER).map((r) => ({
     area: (r.area || r.Area || "").trim(),
+    iso_3_code: (r.iso_3_code || r["ISO 3 Code"] || "").trim() || undefined,
     year: +(r.year || r.Year || 0),
     category: (r.category || r.Category || "").trim(),
     subcategory: (r.subcategory || r.Subcategory || "").trim(),
@@ -70,47 +75,29 @@ export function loadCoins(): CoinRow[] {
   const rows = readCSV(COINS_UNIFIED);
   const out: CoinRow[] = [];
   rows.forEach((r) => {
-    const symbol = (r.symbol || r.Symbol || "").toUpperCase().trim();
+    const symbol = (r.Symbol || r.symbol || "").toUpperCase().trim();
     if (!symbol) return;
-    const date = new Date(r.date || r.Date || "");
+    const dateStr = r.Date || r.date || "";
+    const date = new Date(dateStr);
     if (!Number.isFinite(date.getTime())) return;
-    const close = toNum(r.close || r.Close);
+    const close = toNum(r.Close || r.close);
     if (close == null || close <= 0) return;
+
     out.push({
+      sno: +(r.Sno || r.sno || 0),
+      name: (r.Name || r.name || "").trim(),
       symbol,
       date,
-      year: date.getUTCFullYear(),
+      year: +(r.Year || r.year || date.getUTCFullYear()),
+      high: toNum(r.High || r.high) ?? 0,
+      low: toNum(r.Low || r.low) ?? 0,
+      open: toNum(r.Open || r.open) ?? 0,
       close,
-      marketcap: toNum(r.marketcap || r.Marketcap || r.MarketCap),
-      volume: toNum(r.volume || r.Volume)
+      volume: toNum(r.Volume || r.volume) ?? 0,
+      marketcap: toNum(r.Marketcap || r.marketcap) ?? 0
     });
   });
   return out.sort((a, b) => a.date.getTime() - b.date.getTime());
-}
-
-export function loadWDI(): WdiRow[] {
-  const rows = readCSV(WDI_TIDY);
-  if (rows.length === 0) return [];
-  const keys = Object.keys(rows[0]);
-  const mapped = rows
-    .map((r) => ({
-      country_name: (r[keys[0]] || "").trim(),
-      country_code: (r[keys[1]] || "").trim(),
-      series_name: (r[keys[2]] || "").trim(),
-      series_code: (r[keys[3]] || "").trim(),
-      Year: +(r[keys[4]] || 0),
-      value: toNum(r[keys[5]]) ?? 0
-    }))
-    .filter(
-      (d) =>
-        d.country_name &&
-        d.series_name &&
-        Number.isFinite(d.Year) &&
-        d.Year > 0 &&
-        Number.isFinite(d.value) &&
-        d.value > 0
-    ) as WdiRow[];
-  return mapped;
 }
 
 const isRenew = (v: string, s: string = "") =>
@@ -119,11 +106,20 @@ const isRenew = (v: string, s: string = "") =>
 const isFossil = (v: string, s: string = "") =>
   /fossil|coal|gas|oil/i.test(v) || /fossil|coal|gas|oil/i.test(s);
 
-export function seriesGlobalEnergy(emberRows: EmberRow[]) {
-  const relevant = emberRows.filter((d) =>
-    d.category && d.variable && d.value > 0
-  );
+// Mapeo de países a continentes
+const CONTINENT_MAP: Record<string, string> = {
+  "United States": "América", "Canada": "América", "Mexico": "América", "Brazil": "América",
+  "Argentina": "América", "Chile": "América", "Colombia": "América", "Peru": "América",
+  "Germany": "Europa", "France": "Europa", "United Kingdom": "Europa", "Italy": "Europa",
+  "Spain": "Europa", "Poland": "Europa", "Netherlands": "Europa", "Sweden": "Europa",
+  "China": "Asia", "India": "Asia", "Japan": "Asia", "Korea, Rep.": "Asia",
+  "Indonesia": "Asia", "Thailand": "Asia", "Viet Nam": "Asia", "Malaysia": "Asia",
+  "Egypt, Arab Rep.": "África", "Nigeria": "África", "Kenya": "África", "South Africa": "África",
+  "Australia": "Oceanía", "New Zealand": "Oceanía"
+};
 
+export function seriesGlobalEnergy(emberRows: EmberRow[]) {
+  const relevant = emberRows.filter((d) => d.category && d.variable && d.value > 0);
   const byYear = d3.rollups(
     relevant,
     (arr) => {
@@ -137,54 +133,41 @@ export function seriesGlobalEnergy(emberRows: EmberRow[]) {
   )
     .map(([year, m]) => ({ year: +year, ...m }))
     .sort((a, b) => a.year - b.year);
-
   return byYear.filter((d) => d.total > 0);
 }
 
-export function topCountriesCleanShare(emberRows: EmberRow[], topN = 5, yearMin = 2000) {
-  const base = emberRows.filter((d) => d.year >= yearMin && d.value > 0);
+export function continentCleanShare(emberRows: EmberRow[]) {
+  const relevant = emberRows.filter((d) =>
+    d.year >= 2000 && d.value > 0 && d.category && d.variable
+  );
 
-  const byCountryYear = d3.rollups(
-    base,
+  const countryToContinent = new Map<string, string>();
+  Object.entries(CONTINENT_MAP).forEach(([country, continent]) => {
+    countryToContinent.set(country, continent);
+  });
+
+  const byContinentYear = d3.rollups(
+    relevant.filter(d => countryToContinent.has(d.area)),
     (arr) => {
       const sumRenew = d3.sum(arr.filter((x) => isRenew(x.variable, x.subcategory)), (d) => d.value);
       const sumFossil = d3.sum(arr.filter((x) => isFossil(x.variable, x.subcategory)), (d) => d.value);
       const total = sumRenew + sumFossil;
       const cleanShare = total > 0 ? sumRenew / total : 0;
-      return { total, cleanShare };
+      return { cleanShare, total };
     },
-    (d) => d.area,
+    (d) => countryToContinent.get(d.area)!,
     (d) => d.year
   );
 
-  const lastYear = d3.max(base, (d) => d.year) || yearMin;
-  const lastTotals = byCountryYear.map(([area, yrs]) => ({
-    area,
-    rec: yrs.find((y) => y[0] === lastYear) || yrs.at(-1)!
-  }));
-
-  const validTotals = lastTotals.filter((x) => x.rec && x.rec[1].total > 0);
-  const sortedTotals = validTotals.map((x) => x.rec[1].total).sort(d3.ascending);
-  const thr = d3.quantile(sortedTotals, 0.85) || 0;
-
-  const filteredAreas = new Set(
-    validTotals.filter((x) => x.rec[1].total >= thr).map((x) => x.area)
-  );
-
-  const recent = byCountryYear
-    .filter(([area]) => filteredAreas.has(area))
-    .map(([area, yrs]) => {
-      const yrec = yrs.find((y) => y[0] === lastYear) || yrs.at(-1)!;
-      const cs = yrec ? yrec[1].cleanShare : 0;
-      return {
-        area,
-        cleanShare: cs,
-        years: yrs.map(([year, m]) => ({ year, ...m })).sort((a, b) => a.year - b.year)
-      };
-    })
-    .filter((d) => d.area && d.years.length > 0);
-
-  return recent.sort((a, b) => d3.descending(a.cleanShare, b.cleanShare)).slice(0, topN);
+  const result: Array<{ continent: string; year: number; cleanShare: number }> = [];
+  byContinentYear.forEach(([continent, years]) => {
+    years.forEach(([year, data]) => {
+      if (data.total > 0) {
+        result.push({ continent, year: +year, cleanShare: data.cleanShare });
+      }
+    });
+  });
+  return result.sort((a, b) => a.year - b.year || a.continent.localeCompare(b.continent));
 }
 
 export function cryptoVsCleanShare(
@@ -205,7 +188,7 @@ export function cryptoVsCleanShare(
         if (rets.length === 0) return { volAnn: 0, mcap: 0 };
         const sd = d3.deviation(rets) || 0;
         const volAnn = sd * Math.sqrt(365);
-        const mcap = d3.mean(vs, (v) => v.marketcap ?? 0) || 0;
+        const mcap = d3.mean(vs, (v) => v.marketcap) || 0;
         return { volAnn, mcap };
       },
       (v) => v.year
@@ -219,24 +202,4 @@ export function cryptoVsCleanShare(
     });
   }
   return out;
-}
-
-export function wdiEnergyVsGdp(wdi: WdiRow[], country = "China") {
-  const pick = (name: string) => wdi.filter((d) =>
-    d.country_name === country && d.series_name.includes(name)
-  );
-
-  const euse = pick("Energy use");
-  const gdp = pick("GDP per capita");
-
-  if (euse.length === 0 || gdp.length === 0) return [];
-
-  const map = new Map(gdp.map((d) => [d.Year, d.value]));
-  const rows = euse.map((d) => ({
-    year: d.Year,
-    energy_per_capita_kg: d.value,
-    gdp_per_capita: map.get(d.Year) ?? null
-  }));
-
-  return rows.filter((r) => r.gdp_per_capita != null && r.gdp_per_capita > 0 && r.energy_per_capita_kg > 0);
 }
