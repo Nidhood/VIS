@@ -2,18 +2,81 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import * as d3 from "d3";
 import { useStore } from "../utils/useData";
-import Tooltip from "../utils/Tooltip";
 
 export default function SlopeChart() {
   const svgRef = useRef<SVGSVGElement>(null);
-  const { selectedYear, cryptoData, loading } = useStore();
-  const [tooltip, setTooltip] = useState<any>(null);
+  const tipRef = useRef<HTMLDivElement | null>(null);
+  const {
+    focused,
+    setFocused,
+    clearFocus,
+    cryptoData,
+    globalEnergyData,
+    continentEnergy,
+    selectedYears,
+    selectedContinents,
+    loading
+  } = useStore();
+  const [w, setW] = useState(600);
+  const [h, setH] = useState(380);
+
+  useEffect(() => {
+    const t = document.createElement("div");
+    t.style.position = "fixed";
+    t.style.pointerEvents = "none";
+    t.style.background = "rgba(11,16,34,.95)";
+    t.style.border = "1px solid rgba(167,199,231,.3)";
+    t.style.padding = "8px 10px";
+    t.style.borderRadius = "8px";
+    t.style.fontSize = "12px";
+    t.style.color = "#e2e8f0";
+    t.style.zIndex = "1000";
+    t.style.opacity = "0";
+    document.body.appendChild(t);
+    tipRef.current = t;
+    return () => { document.body.removeChild(t); };
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      const parent = svgRef.current?.parentElement;
+      if (!parent) return;
+      setW(parent.clientWidth - 4);
+      setH(parent.clientHeight - 4);
+    };
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const energySource = useMemo(() => {
+    if (selectedContinents.length === 0) {
+      return globalEnergyData.map(d => ({ year: d.year, total: d.total }));
+    }
+
+    const filtered = continentEnergy.filter(d => selectedContinents.includes(d.continent));
+    const byYear = d3.rollups(
+      filtered,
+      v => d3.sum(v, d => d.total),
+      d => d.year
+    );
+    return byYear
+      .map(([year, total]) => ({ year, total }))
+      .sort((a, b) => a.year - b.year);
+  }, [globalEnergyData, continentEnergy, selectedContinents]);
 
   const data = useMemo(() => {
-    const grouped = d3.group(cryptoData, d => d.symbol);
-    const cryptoGrowths: any[] = [];
+    const energyByYear = new Map(energySource.map(d => [d.year, d.total]));
+
+    let filteredCrypto = cryptoData;
+    if (selectedYears.length > 0) {
+      filteredCrypto = filteredCrypto.filter(d => selectedYears.includes(d.year));
+    }
+
+    const grouped = d3.group(filteredCrypto, d => d.symbol);
+    const arr: any[] = [];
     const colors = ["#f59e0b", "#3b82f6", "#8b5cf6", "#ec4899", "#10b981", "#ef4444", "#06b6d4", "#14b8a6"];
-    let colorIndex = 0;
+    let idx = 0;
 
     for (const [symbol, values] of grouped) {
       const sorted = values.sort((a, b) => a.year - b.year);
@@ -22,32 +85,41 @@ export default function SlopeChart() {
       const first = sorted[0];
       const last = sorted[sorted.length - 1];
 
-      const energyGrowth = first.cleanShare > 0
-        ? ((last.cleanShare - first.cleanShare) / first.cleanShare) * 100 : 0;
-      const mcapGrowth = last.mcap > 0 && first.mcap > 0
-        ? ((last.mcap - first.mcap) / first.mcap) * 100 : 0;
+      const firstEnergy = energyByYear.get(first.year) || 0;
+      const lastEnergy = energyByYear.get(last.year) || 0;
 
-      if (mcapGrowth > 0 && energyGrowth !== 0) {
-        cryptoGrowths.push({
-          symbol, name: symbol,
+      if (firstEnergy === 0 || lastEnergy === 0 || first.mcap === 0) continue;
+
+      const energyGrowth = ((lastEnergy - firstEnergy) / firstEnergy) * 100;
+      const mcapGrowth = ((last.mcap - first.mcap) / first.mcap) * 100;
+
+      if (mcapGrowth > 0 && energyGrowth > 0) {
+        arr.push({
+          symbol,
           energyGrowth: Math.abs(energyGrowth),
-          mcapGrowth: Math.min(mcapGrowth, 10000),
-          color: colors[colorIndex % colors.length]
+          mcapGrowth: Math.min(mcapGrowth, 100000),
+          startYear: first.year,
+          endYear: last.year,
+          firstEnergy,
+          lastEnergy,
+          avgMcap: (first.mcap + last.mcap) / 2,
+          color: colors[idx % colors.length]
         });
-        colorIndex++;
+        idx++;
       }
     }
 
-    const topCryptos = cryptoGrowths.sort((a, b) => b.mcapGrowth - a.mcapGrowth).slice(0, 8);
-    const maxEnergy = d3.max(topCryptos, d => d.energyGrowth) || 100;
-    const maxMcap = d3.max(topCryptos, d => d.mcapGrowth) || 100;
+    const top = arr.sort((a, b) => b.mcapGrowth - a.mcapGrowth).slice(0, 8);
 
-    return topCryptos.map(d => ({
+    const maxE = d3.max(top, d => d.energyGrowth) || 100;
+    const maxM = d3.max(top, d => d.mcapGrowth) || 100;
+
+    return top.map(d => ({
       ...d,
-      energyGrowth: (d.energyGrowth / maxEnergy) * 100,
-      mcapGrowth: (d.mcapGrowth / maxMcap) * 100
+      energyGrowthNorm: (d.energyGrowth / maxE) * 100,
+      mcapGrowthNorm: (d.mcapGrowth / maxM) * 100
     }));
-  }, [cryptoData]);
+  }, [cryptoData, energySource, selectedYears]);
 
   useEffect(() => {
     if (!svgRef.current || loading || data.length === 0) return;
@@ -55,107 +127,126 @@ export default function SlopeChart() {
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const width = 600;
-    const height = 400;
-    const margin = { top: 60, right: 100, bottom: 60, left: 100 };
+    const width = w;
+    const height = h;
+    const margin = { top: 40, right: 40, bottom: 60, left: 80 };
 
     const x = d3.scaleLinear().domain([0, 100]).range([margin.left, width - margin.right]);
     const y = d3.scaleLinear().domain([0, 100]).range([height - margin.bottom, margin.top]);
 
-    // Grid
-    d3.range(0, 101, 20).forEach((val, i) => {
-      svg.append("line")
-        .attr("x1", margin.left).attr("x2", width - margin.right)
-        .attr("y1", y(val)).attr("y2", y(val))
-        .attr("stroke", "rgba(203, 213, 225, 0.15)").attr("stroke-width", 1)
-        .attr("opacity", 0).transition().delay(i * 50).duration(500).attr("opacity", 1);
-      svg.append("line")
-        .attr("x1", x(val)).attr("x2", x(val))
-        .attr("y1", margin.top).attr("y2", height - margin.bottom)
-        .attr("stroke", "rgba(203, 213, 225, 0.15)").attr("stroke-width", 1)
-        .attr("opacity", 0).transition().delay(i * 50).duration(500).attr("opacity", 1);
-    });
+    svg.append("g")
+      .attr("class", "grid")
+      .selectAll("line.vertical")
+      .data(d3.range(0, 101, 10))
+      .enter()
+      .append("line")
+      .attr("class", "vertical")
+      .attr("x1", d => x(d))
+      .attr("x2", d => x(d))
+      .attr("y1", margin.top)
+      .attr("y2", height - margin.bottom)
+      .attr("stroke", "rgba(167,199,231,0.1)")
+      .attr("stroke-width", 1);
 
-    // Puntos
-    data.forEach((d, i) => {
-      const g = svg.append("g").attr("class", `crypto-${i}`).style("cursor", "pointer");
-      const circle = g.append("circle")
-        .attr("cx", x(d.energyGrowth)).attr("cy", y(d.mcapGrowth))
-        .attr("r", 0).attr("fill", d.color).attr("opacity", 0.85)
-        .attr("stroke", "#fff").attr("stroke-width", 3);
-      circle.transition().delay(i * 100).duration(600).attr("r", 14);
+    svg.append("g")
+      .attr("class", "grid")
+      .selectAll("line.horizontal")
+      .data(d3.range(0, 101, 10))
+      .enter()
+      .append("line")
+      .attr("class", "horizontal")
+      .attr("x1", margin.left)
+      .attr("x2", width - margin.right)
+      .attr("y1", d => y(d))
+      .attr("y2", d => y(d))
+      .attr("stroke", "rgba(167,199,231,0.1)")
+      .attr("stroke-width", 1);
 
-      g.append("text").attr("x", x(d.energyGrowth)).attr("y", y(d.mcapGrowth) - 25)
-        .attr("text-anchor", "middle").attr("fill", d.color)
-        .style("font-size", "14px").style("font-weight", "700")
-        .attr("opacity", 0).text(d.symbol)
-        .transition().delay(i * 100 + 300).duration(400).attr("opacity", 1);
+    const dimOpacity = focused.type && focused.type !== "crypto" ? 0.25 : 0.9;
 
-      g.on("mouseover", function(event) {
-        d3.select(this).select("circle").transition().duration(200).attr("r", 20).attr("opacity", 1);
-        setTooltip({
-          data: {
-            title: `${d.symbol}`,
-            items: [
-              { label: 'Market Cap (norm)', value: `${d.mcapGrowth.toFixed(1)}%` },
-              { label: 'Energy (norm)', value: `${d.energyGrowth.toFixed(1)}%` },
-              { label: 'Ratio', value: (d.mcapGrowth / d.energyGrowth).toFixed(2) + 'x' }
-            ]
-          },
-          position: { x: event.clientX, y: event.clientY }
-        });
-      })
-      .on("mouseout", function() {
-        d3.select(this).select("circle").transition().duration(200).attr("r", 14).attr("opacity", 0.85);
-        setTooltip(null);
+    const sizeScale = d3.scaleSqrt()
+      .domain([0, d3.max(data, d => d.avgMcap) || 1])
+      .range([6, 10]);
+
+    data.forEach((d) => {
+      const isFocused = focused.type === "crypto" && focused.value === d.symbol;
+      const opacity = focused.type === "crypto" ? (isFocused ? 1 : 0.3) : dimOpacity;
+      const r = sizeScale(d.avgMcap);
+
+      const g = svg.append("g").style("cursor", "pointer");
+      const c = g.append("circle")
+        .attr("cx", x(d.energyGrowthNorm))
+        .attr("cy", y(d.mcapGrowthNorm))
+        .attr("r", r)
+        .attr("fill", d.color)
+        .attr("opacity", opacity)
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2);
+
+      g.append("text")
+        .attr("x", x(d.energyGrowthNorm))
+        .attr("y", y(d.mcapGrowthNorm) - r - 6)
+        .attr("text-anchor", "middle")
+        .attr("fill", d.color)
+        .style("fontSize", "11px")
+        .style("fontWeight", "700")
+        .attr("opacity", opacity)
+        .text(d.symbol);
+
+      c.on("mousemove", (e: any) => {
+        setFocused({ type: "crypto", value: d.symbol });
+        if (tipRef.current) {
+          tipRef.current.style.left = e.clientX + 12 + "px";
+          tipRef.current.style.top = e.clientY + 12 + "px";
+          tipRef.current.style.opacity = "1";
+          const energyLabel = selectedContinents.length > 0
+            ? `Energía continentes seleccionados`
+            : `Energía global`;
+          tipRef.current.innerHTML = `<b>${d.symbol}</b><br/>Período: ${d.startYear}-${d.endYear}<br/>${energyLabel}: +${d.energyGrowth.toFixed(1)}%<br/>Market Cap: +${d.mcapGrowth.toFixed(0)}%<br/><small>${d3.format(".2s")(d.firstEnergy)} → ${d3.format(".2s")(d.lastEnergy)} TWh</small>`;
+        }
+        c.transition().duration(120).attr("r", r + 3);
+      }).on("mouseleave", () => {
+        clearFocus();
+        if (tipRef.current) tipRef.current.style.opacity = "0";
+        c.transition().duration(120).attr("r", r);
       });
     });
 
-    // Ejes
-    svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`)
-      .call(d3.axisBottom(x).ticks(5).tickFormat(d => d + "%")).attr("color", "#cbd5e1");
-    svg.append("g").attr("transform", `translate(${margin.left},0)`)
-      .call(d3.axisLeft(y).ticks(5).tickFormat(d => d + "%")).attr("color", "#cbd5e1");
+    svg.append("g")
+      .attr("transform", `translate(0,${height - margin.bottom})`)
+      .call(d3.axisBottom(x).ticks(5).tickFormat(d => d + "%"))
+      .attr("color", "#cbd5e1")
+      .selectAll("text")
+      .style("fontSize", "11px");
 
-    // Título
-    svg.append("text").attr("x", width / 2).attr("y", 25)
-      .attr("text-anchor", "middle").attr("fill", "#10b981")
-      .style("font-size", "18px").style("font-weight", "700").text("Cripto vs Energía");
+    svg.append("text")
+      .attr("x", width / 2)
+      .attr("y", height - 20)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#9fb3d1")
+      .style("fontSize", "12px")
+      .style("fontWeight", "600")
 
-    // Labels
-    svg.append("text").attr("x", width / 2).attr("y", height - 15)
-      .attr("text-anchor", "middle").attr("fill", "#cbd5e1")
-      .style("font-size", "13px").text("Crecimiento Energía (normalizado)");
-    svg.append("text").attr("transform", "rotate(-90)")
-      .attr("x", -height / 2).attr("y", 25)
-      .attr("text-anchor", "middle").attr("fill", "#cbd5e1")
-      .style("font-size", "13px").text("Crecimiento Market Cap (normalizado)");
+    svg.append("g")
+      .attr("transform", `translate(${margin.left},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickFormat(d => d + "%"))
+      .attr("color", "#cbd5e1")
+      .selectAll("text")
+      .style("fontSize", "11px");
 
-  }, [data, selectedYear, loading]);
+    svg.append("text")
+      .attr("x", 20)
+      .attr("y", margin.top - 16)
+      .attr("fill", "#9fb3d1")
+      .style("fontSize", "12px")
+      .style("fontWeight", "600")
+      .text("Crecimiento Market Cap (normalizado)");
 
-  if (loading) {
-    return (
-      <div style={{
-        background: 'rgba(15, 23, 42, 0.6)',
-        padding: '20px',
-        borderRadius: '16px',
-        border: '1px solid rgba(16, 185, 129, 0.2)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '400px'
-      }}>
-        <div style={{ color: '#10b981', fontSize: '16px' }}>Cargando datos...</div>
-      </div>
-    );
-  }
+    svg.on("mouseleave pointercancel touchend", () => {
+      clearFocus();
+      if (tipRef.current) tipRef.current.style.opacity = "0";
+    });
+  }, [data, focused, loading, w, h, selectedContinents, setFocused, clearFocus]);
 
-  return (
-    <>
-      <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-        <svg ref={svgRef} width="100%" height="100%" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet" />
-      </div>
-      {tooltip && <Tooltip {...tooltip} />}
-    </>
-  );
+  return <svg ref={svgRef} width="100%" height="100%" />;
 }
