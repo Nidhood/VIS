@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+html,body{
+  height:100%;
+  margin:0;
+  padding:0;
+}
+
+body{
+  overflow:auto;
+}
+
+:root{
+  /* Paleta pastel inspirada en las imágenes */
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --ink: #eef2ff;
+  --text-hi: #eef2ff;
+  --text-lo: #c8d5e8;
+
+  /* Colores pasteles principales */
+  --pastel-blue: #a7c7e7;
+  --pastel-pink: #ffb3ba;
+  --pastel-green: #bae1a4;
+  --pastel-yellow: #ffffba;
+  --pastel-purple: #d4a5d6;
+  --pastel-orange: #ffdfba;
+  --pastel-cyan: #b8e6e6;
+  --pastel-lavender: #e6b8d8;
+
+  /* Grid y stroke con tonos suaves */
+  --grid: rgba(238, 242, 255, 0.15);
+  --stroke: rgba(238, 242, 255, 0.25);
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Animaciones temáticas suavizadas */
+
+@keyframes energyPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 20px rgba(167, 199, 231, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 40px rgba(167, 199, 231, 0.8));
+  }
+}
+
+@keyframes continentOrbit {
+  0% {
+    opacity: 0;
+    transform: rotate(-5deg) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes cryptoFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heatRipple {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Scrollbar personalizado con colores pasteles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(167, 199, 231, 0.05);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(167, 199, 231, 0.3);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(167, 199, 231, 0.5);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(167, 199, 231, 0.3) rgba(167, 199, 231, 0.05);
+}
+
+/* Estilos para filtros y selectores */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sel {
+  padding: 10px 16px;
+  background: rgba(22, 33, 62, 0.8);
+  color: #c8d5e8;
+  border: 1px solid rgba(167, 199, 231, 0.3);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sel:hover:not(:disabled) {
+  background: rgba(167, 199, 231, 0.15);
+  border-color: rgba(167, 199, 231, 0.5);
+}
+
+.sel:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.card {
+  background: rgba(22, 33, 62, 0.95);
+  border: 1px solid rgba(167, 199, 231, 0.3);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+.filter-container {
+  position: relative;
+}
