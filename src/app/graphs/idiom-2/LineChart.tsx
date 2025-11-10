@@ -1,4 +1,3 @@
-// app/graphs/idiom-2/LineChart.tsx
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
@@ -31,7 +30,9 @@ export default function LineChart() {
     });
     document.body.appendChild(t);
     tipRef.current = t;
-    return () => document.body.removeChild(t);
+    return () => {
+      document.body.removeChild(t);
+    };
   }, []);
 
   useEffect(() => {
